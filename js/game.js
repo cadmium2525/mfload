@@ -1699,15 +1699,15 @@ function restartGame() {
 // =====================================================
 // Firebase 設定 & ランキング機能
 // =====================================================
-        const firebaseConfig = {
-            apiKey: "AIzaSyDtOE8k_ul09KKWRH0AqUBkc86OYeFS3ls",
-            authDomain: "mfload2525.firebaseapp.com",
-            databaseURL: "https://mfload2525-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "mfload2525",
-            storageBucket: "mfload2525.firebasestorage.app",
-            messagingSenderId: "829047750322",
-            appId: "1:829047750322:web:336b112f4d841e619d93ab"
-        };
+const firebaseConfig = {
+    apiKey: "AIzaSyDtOE8k_ul09KKWRH0AqUBkc86OYeFS3ls",
+    authDomain: "mfload2525.firebaseapp.com",
+    databaseURL: "https://mfload2525-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "mfload2525",
+    storageBucket: "mfload2525.firebasestorage.app",
+    messagingSenderId: "829047750322",
+    appId: "1:829047750322:web:336b112f4d841e619d93ab"
+};
 
 let firebaseDb = null;
 
