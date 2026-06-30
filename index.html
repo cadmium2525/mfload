@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>モンスターブリーダー：ガッツロード</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+    <!-- 外部スタイルシート -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="w-screen overflow-hidden flex flex-col justify-between">
+
+    <!-- 全体コンテナ (モバイルに最適なアスペクト比、かつ画面最下部に空白の余裕を持たせる) -->
+    <div id="game-container" class="w-full max-w-md mx-auto flex flex-col bg-[#3c2a21] shadow-2xl relative overflow-hidden border-x border-[#1a120b]" style="height: 100%;">
+        
+        <!-- ゲームプレイコンテンツエリア (各screenが個別にスクロール制御するため、ここはflexで高さを子に委譲) -->
+        <div class="flex-1 flex flex-col min-h-0 overflow-hidden">
+
+            <!-- ==================== SCREEN 1: タイトル画面 ==================== -->
+            <div id="screen-title" class="screen active flex-col justify-between h-full p-6 text-center bg-gradient-to-b from-[#3c2a21] to-[#1a120b]">
+                <div class="mt-4">
+                    <p class="text-amber-400 text-xs font-bold tracking-widest uppercase mb-1">Legend of Breeder</p>
+                    <h1 class="text-3xl font-extrabold text-[#f5f2eb] tracking-wider pixel-font border-b-4 border-amber-500 pb-2">
+                        モンスターファーム<br><span class="text-amber-500">ガッツロード</span>
+                    </h1>
+                    <p class="text-[10px] text-gray-400 mt-2">～ 30階の栄光を目指して ～</p>
+                </div>
+
+                <!-- モード選択 & 引き継ぎスキル情報 -->
+                <div class="my-2 space-y-2">
+                    <div class="bg-[#24150e] p-2 rounded-lg border border-amber-900/50 text-xs text-left">
+                        <span class="text-amber-400 font-bold">🧬 引き継ぎ中の継承スキル:</span>
+                        <div class="flex items-center justify-between mt-1">
+                            <span id="inherited-skill-display" class="text-white font-bold">なし (初期状態)</span>
+                            <button onclick="clearInheritedSkill()" id="clear-skill-btn" class="bg-red-900 hover:bg-red-800 text-[10px] text-white px-2 py-0.5 rounded hidden">リセット</button>
+                        </div>
+                    </div>
+
+                    <!-- 難易度選択 -->
+                    <div class="bg-[#1a120b] p-2 rounded-lg border border-amber-900 flex justify-around">
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="difficulty" value="normal" checked class="accent-amber-500">
+                            <span class="text-sm font-bold text-emerald-400">ノーマル</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="difficulty" value="hard" class="accent-red-500">
+                            <span class="text-sm font-bold text-red-500">ハード 💀</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- パートナー選択 -->
+                <div class="bg-[#2a1b15] p-3 rounded-xl border border-amber-700/50 shadow-inner">
+                    <p class="text-xs text-amber-300 font-bold mb-2">パートナーモンスターを選んでください</p>
+                    <div class="grid grid-cols-3 gap-2" id="partner-select-container">
+                        <!-- JSで動的に選択肢を生成 -->
+                    </div>
+                    <div id="selected-monster-details" class="mt-3 pt-2 border-t border-amber-800 text-left text-xs space-y-1">
+                        <!-- 詳細ステータスが入る -->
+                    </div>
+                </div>
+
+                <div class="space-y-2 mt-2">
+                    <!-- プレイヤー名入力 -->
+                    <div class="bg-[#1a120b] p-2 rounded-lg border border-amber-900">
+                        <label class="text-xs text-amber-300 font-bold block mb-1">🎮 ブリーダー名を入力してください</label>
+                        <input type="text" id="player-name-input" maxlength="12" placeholder="名前（最大12文字）"
+                            class="w-full bg-[#24150e] border border-amber-800 text-white text-sm font-bold rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500 placeholder-gray-600">
+                    </div>
+                    <button onclick="startGame()" class="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl text-md shadow-lg transform active:scale-95 transition-all pixel-font border-b-4 border-amber-700">
+                        ブリーディング開始！
+                    </button>
+                    <button onclick="showRanking()" class="w-full py-2.5 bg-[#1a120b] hover:bg-[#2a1b15] text-amber-400 font-bold rounded-xl text-sm shadow border border-amber-800 transition-all active:scale-95 pixel-font flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-ranking-star"></i>
+                        <span>ランキングを見る</span>
+                    </button>
+                    <p class="text-[10px] text-gray-400">※与ダメージ効率を高め、30階層を突破しましょう！</p>
+                </div>
+            </div>
+
+            <!-- ==================== SCREEN 2: メイン冒険・育成画面（アドベンチャーホーム） ==================== -->
+            <div id="screen-adventure" class="screen flex-col justify-between h-full p-4 bg-[#2b1c14] space-y-3">
+                <!-- ヘッダー情報 -->
+                <div class="flex justify-between items-center bg-[#3c2a21] p-3 rounded-xl border border-amber-900/40">
+                    <div class="flex flex-col">
+                        <span class="bg-amber-600 text-white font-bold text-xs px-2 py-0.5 rounded pixel-font text-center" id="adventure-floor">FLOOR 1/30</span>
+                        <span id="adventure-diff-tag" class="text-[9px] text-emerald-400 font-bold mt-1 text-center">NORMAL MODE</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[10px] text-amber-300 block">総行動数 (SCORE)</span>
+                        <div class="text-lg font-bold text-white pixel-font" id="adventure-actions">0</div>
+                    </div>
+                </div>
+
+                <!-- モンスター表示とステータス -->
+                <div class="flex-1 flex flex-col justify-center items-center py-2 text-center relative">
+                    <!-- コンパス発動中のバッジ -->
+                    <div id="compass-active-badge" class="hidden absolute top-0 left-0 right-0 mx-auto w-max bg-cyan-600 border border-cyan-300 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow animate-pulse">
+                        🧭 運命のコンパス効果発動中！
+                    </div>
+
+                    <!-- モンスター画像/絵文字 -->
+                    <div class="relative w-28 h-28 bg-[#1a120b] rounded-full border-4 border-amber-700 flex items-center justify-center text-5xl shadow-inner mb-2 animate-bounce" id="adventure-monster-icon">
+                        💬
+                    </div>
+                    <h2 class="text-md font-bold text-amber-200" id="adventure-monster-name">モンスター名</h2>
+                    
+                    <!-- 体力ステータス (MAX 100) -->
+                    <div class="w-full max-w-xs mt-2 bg-[#140b08] p-2 rounded-xl border border-amber-900/40">
+                        <div class="flex justify-between text-[11px] mb-1 font-bold">
+                            <span class="text-amber-400"><i class="fa-solid fa-bolt mr-1"></i>体力 (育成用エネルギー)</span>
+                            <span class="text-amber-300" id="adv-stat-fatigue">100/100</span>
+                        </div>
+                        <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden p-[1px]">
+                            <div id="adv-fatigue-bar" class="bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 h-full rounded-full transition-all duration-300" style="width: 100%"></div>
+                        </div>
+                    </div>
+
+                    <!-- 簡易ステータス表示 -->
+                    <div class="grid grid-cols-3 gap-1.5 mt-2.5 w-full bg-[#1a120b]/50 p-2.5 rounded-lg text-[11px]">
+                        <div>ライフ: <span class="text-emerald-400 font-bold block text-xs" id="adv-stat-life">0/0</span></div>
+                        <div>ちから: <span class="text-red-400 font-bold block text-xs" id="adv-stat-pow">0</span></div>
+                        <div>かしこさ: <span class="text-cyan-400 font-bold block text-xs" id="adv-stat-int">0</span></div>
+                        <div>命中: <span class="text-[#f5f2eb] font-bold block text-xs" id="adv-stat-hit">0</span></div>
+                        <div>回避: <span class="text-sky-400 font-bold block text-xs" id="adv-stat-spd">0</span></div>
+                        <div>丈夫さ: <span class="text-gray-300 font-bold block text-xs" id="adv-stat-def">0</span></div>
+                    </div>
+
+                    <!-- 技リスト簡易確認 -->
+                    <div class="mt-2 w-full text-left">
+                        <span class="text-[9px] text-amber-400 block mb-0.5">修得中の技:</span>
+                        <div class="flex flex-wrap gap-1" id="adv-skills-list">
+                            <!-- 動的に追加 -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- アクション操作パネル -->
+                <div class="bg-[#1a120b] p-3 rounded-2xl border border-amber-950 space-y-2">
+                    <p class="text-center text-[10px] text-amber-300" id="adventure-prompt">モンスターをトレーニングで鍛えるか、次の階層へ進みましょう！</p>
+                    
+                    <div class="grid grid-cols-2 gap-2">
+                        <!-- トレーニングボタン -->
+                        <button id="btn-training-menu" onclick="openTrainingMenu()" class="py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-xl text-xs shadow-md flex items-center justify-center space-x-1.5 transition-all active:scale-95">
+                            <i class="fa-solid fa-dumbbell"></i>
+                            <span class="pixel-font">トレーニング</span>
+                        </button>
+                        <!-- 休養ボタン -->
+                        <button id="btn-rest" onclick="executeRest()" class="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md flex items-center justify-center space-x-1.5 transition-all active:scale-95">
+                            <i class="fa-solid fa-bed"></i>
+                            <span class="pixel-font">休養 (体力+50)</span>
+                        </button>
+                    </div>
+
+                    <!-- バッグ（アイテム使用）ボタン -->
+                    <button onclick="openBagMenu()" class="w-full py-2 bg-amber-700 hover:bg-amber-600 text-white font-bold rounded-xl text-xs shadow shadow-amber-900 flex items-center justify-center space-x-1.5 transition-all active:scale-95">
+                        <i class="fa-solid fa-bag-shopping"></i>
+                        <span class="pixel-font">バッグ (アイテム使用)</span>
+                        <span id="bag-count" class="bg-amber-900 text-amber-300 text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1">0</span>
+                    </button>
+
+                    <!-- 探索ボタン -->
+                    <button onclick="triggerNextFloor()" class="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-[#1a120b] font-bold rounded-xl text-sm shadow-lg flex items-center justify-center space-x-2 transition-all active:scale-95 border-b-4 border-amber-700">
+                        <i class="fa-solid fa-shoe-prints"></i>
+                        <span class="pixel-font font-bold text-xs">次の階層へ進む (探索)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- ==================== SCREEN 2.5: トレーニングメニュー画面 ==================== -->
+            <div id="screen-training" class="screen flex-col justify-between h-full p-4 bg-[#231510] space-y-3">
+                <div class="bg-amber-950/40 p-2.5 rounded-lg border border-amber-800 text-center flex justify-between items-center">
+                    <span class="text-xs text-cyan-400 font-bold"><i class="fa-solid fa-dumbbell mr-1"></i>トレーニング選択</span>
+                    <span class="text-xs bg-[#1a120b] px-2 py-1 rounded text-amber-400">現在体力: <span id="training-current-fatigue" class="font-bold">100</span></span>
+                </div>
+
+                <!-- トレーニングリストスクロールエリア -->
+                <div class="flex-1 overflow-y-auto space-y-2 pr-1" id="training-list-container">
+                    <!-- JSで動的にトレーニングカードを生成 -->
+                </div>
+
+                <button onclick="goToAdventure()" class="w-full py-3 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs border border-amber-800 transition-all">
+                    戻る
+                </button>
+            </div>
+
+            <!-- ==================== SCREEN 2.6: バッグ・アイテムメニュー画面 ==================== -->
+            <div id="screen-bag" class="screen flex-col justify-between h-full p-4 bg-[#231510] space-y-3">
+                <div class="bg-amber-950/40 p-2.5 rounded-lg border border-amber-800 text-center">
+                    <span class="text-xs text-amber-400 font-bold"><i class="fa-solid fa-bag-shopping mr-1"></i>バッグの中身</span>
+                </div>
+
+                <!-- アイテムリスト -->
+                <div class="flex-1 overflow-y-auto space-y-2 pr-1" id="bag-list-container">
+                    <!-- JSで動的にアイテムカードを生成 -->
+                </div>
+
+                <button onclick="goToAdventure()" class="w-full py-3 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs border border-amber-800 transition-all">
+                    戻る
+                </button>
+            </div>
+
+            <!-- ==================== SCREEN 2.7: コンパス発動時の行先選択ポップアップ ==================== -->
+            <div id="screen-compass-select" class="screen flex-col justify-center items-center h-full p-6 bg-[#1a120b]/95 z-50">
+                <div class="w-full bg-[#2a1b15] p-5 rounded-2xl border border-cyan-500 shadow-2xl text-center space-y-4">
+                    <div class="text-4xl text-cyan-400 animate-spin-slow">🧭</div>
+                    <h3 class="text-lg font-bold text-cyan-300 pixel-font">運命のコンパス発動！</h3>
+                    <p class="text-xs text-gray-300">コンパスの魔力が輝いている。次に進む道を自由に選択してください：</p>
+                    
+                    <div class="grid grid-cols-1 gap-2 pt-2">
+                        <button onclick="selectCompassRoute('battle')" class="py-3 bg-red-900/80 hover:bg-red-800 border border-red-700 rounded-xl text-xs font-bold text-white flex justify-between px-4 items-center">
+                            <span>⚔️ バトルに挑む</span>
+                            <span class="text-[9px] bg-red-700 text-red-200 px-1.5 py-0.5 rounded">戦闘・成長</span>
+                        </button>
+                        <button onclick="selectCompassRoute('training_event')" class="py-3 bg-cyan-900/80 hover:bg-cyan-800 border border-cyan-700 rounded-xl text-xs font-bold text-white flex justify-between px-4 items-center">
+                            <span>🏋️ トレーニングイベントに進む</span>
+                            <span class="text-[9px] bg-cyan-700 text-cyan-200 px-1.5 py-0.5 rounded">安全成長</span>
+                        </button>
+                        <button onclick="selectCompassRoute('event')" class="py-3 bg-amber-900/80 hover:bg-amber-800 border border-amber-700 rounded-xl text-xs font-bold text-white flex justify-between px-4 items-center">
+                            <span>⛲ ランダムイベントに立ち寄る</span>
+                            <span class="text-[9px] bg-amber-700 text-amber-200 px-1.5 py-0.5 rounded">ハプニング</span>
+                        </button>
+                        <button onclick="selectCompassRoute('training')" class="py-3 bg-teal-900/80 hover:bg-teal-800 border border-teal-700 rounded-xl text-xs font-bold text-white flex justify-between px-4 items-center">
+                            <span>⛰️ 修行マス（新技習得）に進む</span>
+                            <span class="text-[9px] bg-teal-700 text-teal-200 px-1.5 py-0.5 rounded">秘技覚醒</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== SCREEN 3: イベント / 修行 画面 ==================== -->
+            <div id="screen-event" class="screen flex-col justify-between h-full p-4 bg-[#231510]">
+                <div class="bg-amber-950/40 p-3 rounded-lg border border-amber-800 text-center">
+                    <span class="text-xs text-amber-400 tracking-wider font-bold" id="event-tag">EVENT OCCURRED</span>
+                    <h3 class="text-lg font-bold text-white pixel-font" id="event-title">不思議な池を発見した！</h3>
+                </div>
+
+                <!-- イベントの画像・ビジュアル演出 -->
+                <div class="my-auto flex flex-col items-center justify-center py-4">
+                    <div id="event-visual" class="text-6xl p-5 bg-[#1a120b] rounded-2xl border-2 border-amber-600 mb-4">
+                        ⛲
+                    </div>
+                    <p id="event-description" class="text-sm text-gray-200 leading-relaxed px-4 text-center max-h-36 overflow-y-auto">
+                        静かに澄んだ水が湧き出ている。モンスターは水を飲みたそうに見つめている。どうしますか？
+                    </p>
+                    
+                    <!-- 結果ダイアログ -->
+                    <div id="event-result" class="mt-4 p-3 bg-amber-950/80 border border-amber-600 rounded-xl text-center text-sm font-bold text-amber-300 hidden w-full">
+                        結果がここに表示されます。
+                    </div>
+                </div>
+
+                <!-- 選択肢ボタン群 -->
+                <div class="space-y-2" id="event-choices-container">
+                    <!-- 動的に生成 -->
+                </div>
+            </div>
+
+            <!-- ==================== SCREEN 4: バトル画面 ==================== -->
+            <div id="screen-battle" class="screen flex-col justify-between h-full bg-[#18110d]">
+                <!-- 敵・味方 ステータスヘッダー -->
+                <div class="p-3 bg-[#2d1b13] border-b border-amber-950 space-y-2">
+                    <div class="flex justify-between items-center text-[11px]">
+                        <span class="text-amber-400 font-bold pixel-font" id="battle-floor-indicator">FLOOR 10 - BOSS BATTLE</span>
+                        <div class="flex items-center space-x-2">
+                            <span id="player-defense-shield" class="hidden bg-blue-600 text-white font-bold text-[9px] px-1.5 py-0.5 rounded">🛡️ 防御中</span>
+                            <span class="bg-[#1a120b] px-2 py-0.5 rounded text-white text-[10px]">戦闘ターン: <span id="battle-turn-counter" class="text-amber-400 font-bold">0</span></span>
+                        </div>
+                    </div>
+
+                    <!-- 敵ステータス -->
+                    <div class="bg-[#140b08] p-2 rounded border border-red-900/50 space-y-1">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-xs text-red-400" id="enemy-name">スエゾー</span>
+                            <span class="text-[10px] text-gray-400" id="enemy-hp-text">HP: 120/120</span>
+                        </div>
+                        <!-- HPゲージ -->
+                        <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                            <div id="enemy-hp-bar" class="bg-red-500 h-full transition-all duration-300" style="width: 100%"></div>
+                        </div>
+                        <!-- 敵ガッツゲージ -->
+                        <div class="flex items-center justify-between text-[9px] text-gray-400">
+                            <span>相手のGUTS: <span id="enemy-guts-text" class="text-orange-400 font-bold">50</span>/100</span>
+                            <div class="flex-1 ml-2 bg-gray-900 h-1 rounded overflow-hidden">
+                                <div id="enemy-guts-bar" class="bg-orange-500 h-full transition-all" style="width: 50%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- バトルフィールド（ビジュアル） -->
+                <div class="h-44 relative flex items-center justify-around px-4 bg-gradient-to-b from-[#18110d] via-[#331c12] to-[#18110d]">
+                    <!-- エフェクトアニメーション用オーバーレイ -->
+                    <div id="battle-effect-overlay" class="absolute inset-0 flex items-center justify-center pointer-events-none z-20 text-3xl font-extrabold text-white scale-0 transition-all duration-300"></div>
+
+                    <!-- 味方モンスター -->
+                    <div class="flex flex-col items-center relative transition-all duration-300" id="battle-player-sprite-container">
+                        <div class="relative w-16 h-16 flex items-center justify-center mb-2 animate-pulse" id="battle-player-icon">
+                            🍪
+                        </div>
+                        <div class="bg-amber-900/80 px-2 py-0.5 rounded text-[9px] text-amber-200" id="battle-player-name">モッチー</div>
+                        <!-- ダメージ数値表示用 -->
+                        <div id="player-dmg-popup" class="absolute -top-8 text-lg font-bold text-red-500 opacity-0 transition-all duration-500 pointer-events-none"></div>
+                    </div>
+
+                    <!-- VSの文字 -->
+                    <div class="pixel-font font-black text-sm text-amber-700 opacity-40">VS</div>
+
+                    <!-- 敵モンスター -->
+                    <div class="flex flex-col items-center relative transition-all duration-300" id="battle-enemy-sprite-container">
+                        <div class="relative w-16 h-16 flex items-center justify-center mb-2" id="battle-enemy-icon">
+                            👁️
+                        </div>
+                        <div class="bg-red-950/80 px-2 py-0.5 rounded text-[9px] text-red-300" id="battle-enemy-type">スエゾー</div>
+                        <!-- ダメージ数値表示用 -->
+                        <div id="enemy-dmg-popup" class="absolute -top-8 text-lg font-bold text-white opacity-0 transition-all duration-500 pointer-events-none"></div>
+                    </div>
+                </div>
+
+                <!-- 味方ガッツ(GUTS)システム UI -->
+                <div class="bg-[#110906] px-4 py-2 border-t border-amber-950/50 flex items-center justify-between">
+                    <div class="flex flex-col">
+                        <span class="text-[10px] font-bold text-orange-400 tracking-wider">GUTS / ガッツ</span>
+                        <div class="flex items-center space-x-1 mt-0.5">
+                            <div class="text-lg font-bold text-orange-500 pixel-font" id="guts-number">50</div>
+                            <span class="text-[10px] text-gray-500">/ 100</span>
+                        </div>
+                    </div>
+                    <!-- ガッツ蓄積ゲージ -->
+                    <div class="flex-1 ml-4 bg-gray-900 h-3 rounded-full overflow-hidden border border-amber-900/30 p-[1px]">
+                        <div id="guts-progress-bar" class="bg-gradient-to-r from-orange-600 via-yellow-500 to-amber-400 h-full rounded-full transition-all" style="width: 50%"></div>
+                    </div>
+                </div>
+
+                <!-- 味方ステータス ＆ バトルログ -->
+                <div class="bg-[#24150e] p-3 border-t border-amber-950 space-y-2">
+                    <div class="flex justify-between items-center">
+                        <div class="flex-1 pr-4">
+                            <div class="flex justify-between text-[11px] mb-1">
+                                <span class="text-emerald-400 font-bold">LIFE:</span>
+                                <span class="text-emerald-400 font-bold" id="player-hp-text">200/200</span>
+                            </div>
+                            <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                                <div id="player-hp-bar" class="bg-emerald-500 h-full transition-all duration-300" style="width: 100%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- バトル行動履歴ログ -->
+                    <div class="bg-[#140b08] p-2 rounded h-16 overflow-y-auto text-[10px] text-gray-300 font-mono space-y-0.5 border border-amber-950" id="battle-log">
+                        <div>バトル開始！先行はブリーダーモンスターです。</div>
+                    </div>
+                </div>
+
+                <!-- コマンド入力エリア -->
+                <div class="bg-[#18110d] p-3 space-y-2">
+                    <div class="flex justify-between items-center text-[10px] text-gray-400">
+                        <span id="turn-guts-notice" class="text-orange-400 font-bold">💡 ターン開始時にガッツが回復します！</span>
+                        <span class="text-[9px] text-amber-300">行動数: <span id="battle-actions-counter" class="font-bold">0</span></span>
+                    </div>
+
+                    <p class="text-[9px] text-gray-400 text-center">※技ボタンを長押しすると詳細を確認できます</p>
+
+                    <!-- 技選択ボタンエリア (スクロール対応) -->
+                    <div class="grid grid-cols-2 gap-1.5 max-h-28 overflow-y-auto" id="battle-skills-container">
+                        <!-- 動的に技ボタンを配置 -->
+                    </div>
+
+                    <!-- ターン終了ボタン（通常終了 / 防御して終了） -->
+                    <div class="pt-1 grid grid-cols-2 gap-2">
+                        <button id="end-turn-btn" onclick="endPlayerTurn(false)" class="py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl text-xs shadow-md transition-all active:scale-95 pixel-font flex justify-center items-center space-x-1">
+                            <span>攻撃終了</span>
+                            <i class="fa-solid fa-forward"></i>
+                        </button>
+                        <button id="end-turn-defend-btn" onclick="endPlayerTurn(true)" class="py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md transition-all active:scale-95 pixel-font flex justify-center items-center space-x-1">
+                            <span>🛡️ 防御して終了</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== SCREEN 4.5: バトル勝利リザルト・ステータス確認画面 ==================== -->
+            <div id="screen-battle-result" class="screen flex-col justify-between h-full p-6 text-center bg-[#1f1610]">
+                <div class="mt-4 animate-bounce">
+                    <div class="text-6xl mb-3">🏆</div>
+                    <h1 class="text-2xl font-black text-amber-500 pixel-font">BATTLE VICTORY!</h1>
+                    <p class="text-xs text-gray-400 mt-1">強敵に勝利し、更なる成長を遂げました！</p>
+                </div>
+
+                <!-- 成長実績ボード -->
+                <div class="bg-[#2a1b15] p-4 rounded-2xl border border-amber-700/50 my-2 shadow-inner space-y-3">
+                    <div class="border-b border-amber-800/40 pb-2 text-center">
+                        <div class="text-sm font-bold text-emerald-400" id="battle-result-enemy-desc">敵に勝利！</div>
+                    </div>
+
+                    <div class="text-left space-y-1.5 bg-[#150b07] p-3 rounded-xl border border-amber-950" id="battle-gain-list">
+                        <!-- JSで動的に前後のステータス + 差分 を生成 -->
+                    </div>
+
+                    <!-- アイテム獲得のお知らせ領域 -->
+                    <div id="battle-item-drop-display" class="hidden bg-cyan-950/80 border border-cyan-500/50 p-2.5 rounded-xl text-center space-y-1">
+                        <p class="text-[10px] text-cyan-300 font-bold"><i class="fa-solid fa-gift mr-1"></i>バトル勝利報酬獲得！</p>
+                        <div class="flex items-center justify-center space-x-2">
+                            <span id="dropped-item-icon" class="text-2xl">🎁</span>
+                            <div class="text-left">
+                                <span id="dropped-item-name" class="text-xs font-bold text-white block">アイテム名</span>
+                                <span id="dropped-item-desc" class="text-[9px] text-gray-400 block">アイテムの効果説明</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <button onclick="confirmBattleResult()" class="w-full py-4 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl text-lg shadow-lg transform active:scale-95 transition-all pixel-font border-b-4 border-amber-700">
+                        冒険を続ける
+                    </button>
+                </div>
+            </div>
+
+            <!-- ==================== SCREEN 5: リザルト・ゲームオーバー/クリア画面 ==================== -->
+            <div id="screen-result" class="screen flex-col justify-between h-full p-6 text-center bg-[#1a120b]">
+                <div class="mt-4">
+                    <div id="result-badge" class="text-6xl mb-3">🏆</div>
+                    <h1 id="result-title" class="text-2xl font-black text-amber-500 pixel-font">CONGRATULATIONS!</h1>
+                    <p id="result-subtitle" class="text-xs text-gray-400 mt-1">ブリーダーの冒険は幕を閉じた</p>
+                </div>
+
+                <!-- スコア詳細ボード -->
+                <div class="bg-[#2a1b15] p-5 rounded-2xl border border-amber-700/50 my-4 shadow-inner space-y-3">
+                    <div class="grid grid-cols-2 gap-2 text-center border-b border-amber-800/40 pb-2">
+                        <div>
+                            <span class="text-[10px] text-gray-400">難易度</span>
+                            <div class="text-sm font-bold text-white" id="result-difficulty">NORMAL</div>
+                        </div>
+                        <div>
+                            <span class="text-[10px] text-gray-400">最終到達階層</span>
+                            <div class="text-sm font-bold text-white pixel-font" id="result-final-floor">30 / 30</div>
+                        </div>
+                    </div>
+                    <!-- スコア詳細 -->
+                    <div class="grid grid-cols-3 gap-2 text-center bg-[#150b07] p-2.5 rounded-xl border border-amber-950">
+                        <div>
+                            <span class="text-[9px] text-gray-400 block">与ダメージ総計</span>
+                            <div class="text-sm font-bold text-red-400 pixel-font" id="result-total-damage">0</div>
+                        </div>
+                        <div>
+                            <span class="text-[9px] text-gray-400 block">総行動数</span>
+                            <div class="text-sm font-bold text-white pixel-font" id="result-total-actions">0</div>
+                        </div>
+                        <div>
+                            <span class="text-[9px] text-gray-400 block">効率倍率</span>
+                            <div class="text-sm font-bold text-cyan-400 pixel-font" id="result-multiplier">×0.0</div>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="text-[10px] text-amber-300">最終スコア (FINAL SCORE)</span>
+                        <div class="text-3xl font-extrabold text-amber-500 pixel-font" id="result-final-score">0</div>
+                        <div id="result-clear-bonus" class="hidden mt-1 text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-700 rounded px-2 py-0.5 inline-block">🏆 クリアボーナス ×1.5</div>
+                    </div>
+
+                    <div class="border-t border-amber-800 pt-3 text-left space-y-1">
+                        <p class="text-xs text-amber-400 font-bold">🏆 あなたのブリーダー称号:</p>
+                        <p class="text-sm font-bold text-white" id="result-rank-text">マスターブリーダー</p>
+                        <p class="text-[10px] text-gray-400 leading-relaxed" id="result-rank-desc">素晴らしい手腕！まさにモンスターと一心同体です。</p>
+                    </div>
+
+                    <!-- ==================== スキル継承セクション (LocalStorage連動) ==================== -->
+                    <div id="heritage-section" class="border-t border-amber-800 pt-3 text-left hidden">
+                        <p class="text-xs text-cyan-400 font-bold mb-2">🧬 技の継承（次回プレイに1つ引き継ぎ可能！）</p>
+                        <p class="text-[10px] text-gray-400 mb-2">今回覚えた追加技から、次回初期スキルに加える技を1つ選択して終了してください：</p>
+                        <div id="heritage-skills-list" class="grid grid-cols-2 gap-2">
+                            <!-- JSで修行獲得技ボタンを生成 -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <button onclick="restartGame()" class="w-full py-4 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl text-lg shadow-lg transform active:scale-95 transition-all pixel-font border-b-4 border-amber-700">
+                        タイトル画面に戻る
+                    </button>
+                </div>
+            </div>
+
+            <!-- ==================== SCREEN 6: ランキング画面 ==================== -->
+            <div id="screen-ranking" class="screen flex-col justify-between h-full p-4 bg-[#1a120b] space-y-3">
+                <div class="bg-amber-950/40 p-3 rounded-xl border border-amber-700 text-center">
+                    <div class="text-3xl mb-1">🏆</div>
+                    <h2 class="text-lg font-black text-amber-400 pixel-font">ランキング</h2>
+                    <p class="text-[10px] text-gray-400 mt-1">与ダメージ効率スコア TOP 10</p>
+                </div>
+
+                <!-- 難易度タブ -->
+                <div class="flex space-x-2">
+                    <button id="rank-tab-normal" onclick="switchRankingTab('normal')" class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all bg-emerald-900 border-emerald-600 text-emerald-300">ノーマル</button>
+                    <button id="rank-tab-hard" onclick="switchRankingTab('hard')" class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all bg-[#2a1b15] border-amber-900 text-gray-400">ハード 💀</button>
+                </div>
+
+                <!-- ランキングリスト -->
+                <div class="flex-1 overflow-y-auto space-y-1.5 pr-1" id="ranking-list-container">
+                    <div class="text-center text-gray-500 text-xs py-8">読み込み中...</div>
+                </div>
+
+                <button onclick="restartGame()" class="w-full py-3 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs border border-amber-800 transition-all active:scale-95">
+                    タイトルに戻る
+                </button>
+            </div>
+
+        </div>
+
+        <!-- プレイの邪魔にならないよう、最下部にあえて確保した余白用のコンテナ -->
+        <div class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#120b07] to-transparent pointer-events-none z-10"></div>
+        <div class="absolute bottom-0 left-0 right-0 h-6 bg-[#120b07] z-10 flex items-center justify-center">
+            <span class="text-[8px] text-amber-900/60 font-semibold uppercase tracking-widest">Monster Farm Breeder Guts Battle</span>
+        </div>
+
+    </div>
+
+    <!-- 技詳細モーダルウィンドウ -->
+    <div id="skill-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 hidden" onclick="closeSkillModal()">
+        <div class="bg-[#2a1b15] w-full max-w-xs p-4 rounded-2xl border-2 border-amber-600 space-y-3 shadow-2xl" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-start border-b border-amber-800 pb-2">
+                <div>
+                    <h4 id="modal-skill-name" class="text-base font-black text-white pixel-font">技の名前</h4>
+                    <span id="modal-skill-type" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-400 font-bold mt-1 inline-block">タイプ</span>
+                </div>
+                <div class="text-right">
+                    <span class="text-[10px] text-gray-400 block">消費ガッツ</span>
+                    <span id="modal-skill-cost" class="text-sm font-bold text-orange-400 font-mono">0</span>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-xs bg-[#150b07] p-2 rounded-xl border border-amber-950">
+                <div>ダメージランク: <span id="modal-skill-rank" class="font-bold text-white">G</span></div>
+                <div>ガッツダウン: <span id="modal-skill-gutsdown" class="font-bold text-orange-400 font-mono">0</span></div>
+            </div>
+            <div class="bg-[#1e120c] p-2 rounded border border-amber-900/40 space-y-1">
+                <span class="text-[9px] text-orange-400 font-bold block">🔥 現在のガッツ補正効果（GUTS: <span id="modal-current-guts" class="font-mono">0</span>）</span>
+                <div class="text-[11px] text-gray-200 flex justify-between">
+                    <span>補正ダメージ倍率:</span>
+                    <span id="modal-guts-dmg-scale" class="font-bold text-emerald-400 font-mono">1.00倍</span>
+                </div>
+                <div class="text-[11px] text-gray-200 flex justify-between">
+                    <span>現在の実質命中率:</span>
+                    <span id="modal-guts-hit-rate" class="font-bold text-cyan-400 font-mono">0%</span>
+                </div>
+            </div>
+            <p id="modal-skill-desc" class="text-xs text-gray-300 leading-relaxed min-h-12 bg-[#1a120b]/50 p-2 rounded">技の詳しい説明文がここに入ります。</p>
+            <button onclick="closeSkillModal()" class="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs transition-all">
+                閉じる
+            </button>
+        </div>
+    </div>
+
+    <!-- 簡易的なお知らせトーストシステム (alertを使わないカスタムUI) -->
+    <div id="custom-toast" class="fixed top-4 left-1/2 transform -translate-x-1/2 bg-amber-950/95 border-2 border-amber-500 px-4 py-2.5 rounded-xl text-xs font-bold shadow-2xl z-50 transition-opacity duration-300 opacity-0 pointer-events-none text-center max-w-xs text-amber-100">
+        トースト通知
+    </div>
+
+    <!-- ==================== SCRIPT / ゲームロジック ==================== -->
+    <script src="js/database.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>
