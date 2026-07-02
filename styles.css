@@ -50,3 +50,12 @@ body {
     background: #85583f;
     border-radius: 3px;
 }
+
+/* 状態変化のスムーズな点滅アニメーション */
+@keyframes smoothBlink {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 1; }
+}
+.animate-status-blink {
+    animation: smoothBlink 1.4s infinite ease-in-out;
+}

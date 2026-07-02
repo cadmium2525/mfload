@@ -25,31 +25,38 @@ const GAME_STATE = {
     actionPerformedThisFloor: false, // この階層でトレーニングまたは休養を実行したか
     activeTrainBoost: null,     // アクティブなトレーニングブースト { targetTraining, multiplier }
     skillEnhancements: {},      // 技の強化データ { skKey: { forceBonus, hitBonus, level } }
-    isAwakened: false           // 覚醒状態フラグ（覚醒イベント発生後にtrue）
+    isAwakened: false,          // 覚醒状態フラグ（覚醒イベント発生後にtrue）
+    playerStatusEffect: null,   // 付与された状態変化 ("根性", "逆上", "底力", "闘魂", "集中")
+    isGyakujoActive: false,     // 逆上状態が発動しているか
+    isSokojikaraFired: false,   // 底力が既にトリガーされたか (バトル中1回)
+    isSokojikaraActive: false,  // 底力のダメージ増加効果が有効か (次の1回)
+    isShuchuActive: false       // 集中状態が有効か (ガッツ90超から技使用まで)
 };
 
 // --- モンスター画像読み込みヘルパー関数 ---
 function renderMonsterVisual(containerEl, name, emoji, isAwakened = false) {
     if (!containerEl) return;
-    
+
+    // 画像ロード前にまず絵文字で即時初期化（残像防止）
+    containerEl.innerHTML = `<span class="text-5xl filter drop-shadow-[0_8px_6px_rgba(0,0,0,0.6)]">${emoji}</span>`;
+
     // 名前のクレンジング (中ボス/伝説の邪神などの修飾子やスペース、(強敵)などを除外してファイル名にする)
     let cleanName = name.replace("中ボス：", "").replace("伝説の邪神：", "").split(" ")[0];
     cleanName = cleanName.replace(/\s*\(強敵\)\s*/g, "");
-    
+
     const prefix = isAwakened ? "覚醒" : "";
     const imagePath = `images/${prefix}${cleanName}.png`;
-    
+
     const img = new Image();
     img.src = imagePath;
     img.onload = () => {
         // 画像が存在する場合はimgタグを挿入
         containerEl.innerHTML = `<img src="${imagePath}" alt="${name}" class="w-full h-full object-contain max-h-24 max-w-24 mx-auto drop-shadow-lg">`;
     };
-    img.onerror = () => {
-        // 画像が存在しない、またはロードエラー時は元の絵文字でフォールバック
-        containerEl.innerHTML = `<span class="text-5xl filter drop-shadow-[0_8px_6px_rgba(0,0,0,0.6)]">${emoji}</span>`;
-    };
+    // onerror: 既に絵文字でフォールバック表示済みのため何もしない
+    img.onerror = () => {};
 }
+
 
 // --- お知らせトースト関数 ---
 function showToast(message) {
@@ -305,6 +312,11 @@ function startGame() {
     GAME_STATE.activeTrainBoost = null;
     GAME_STATE.skillEnhancements = {};
     GAME_STATE.isAwakened = false;
+    GAME_STATE.playerStatusEffect = null;
+    GAME_STATE.isGyakujoActive = false;
+    GAME_STATE.isSokojikaraFired = false;
+    GAME_STATE.isSokojikaraActive = false;
+    GAME_STATE.isShuchuActive = false;
 
     goToAdventure();
 }
@@ -942,6 +954,12 @@ function setupBattle(isBoss = false) {
     GAME_STATE.battleGain = null;
     GAME_STATE.isBossBattle = isBoss;
 
+    // 状態変化関連のフラグ初期化
+    GAME_STATE.isGyakujoActive = false;
+    GAME_STATE.isSokojikaraFired = false;
+    GAME_STATE.isSokojikaraActive = false;
+    GAME_STATE.isShuchuActive = false;
+
     let enemyTemplate;
     if (isBoss) {
         enemyTemplate = BOSS_TEMPLATES[GAME_STATE.floor];
@@ -1037,6 +1055,16 @@ function startPlayerTurn(isFirstTurn = false) {
     if (!isFirstTurn) {
         let recovery = Math.floor((GAME_STATE.player.stats.gutsSpeed || 15) + 30);
         
+        let extraRecoverMsg = "";
+        if (GAME_STATE.isGyakujoActive) {
+            recovery = Math.floor(recovery * 1.2);
+            extraRecoverMsg += " (逆上効果×1.2)";
+        }
+        if (GAME_STATE.playerStatusEffect === "闘魂" && GAME_STATE.enemy && GAME_STATE.enemy.guts > 70) {
+            recovery = Math.floor(recovery * 1.5);
+            extraRecoverMsg += " (闘魂効果×1.5)";
+        }
+
         if (GAME_STATE.halfRecoveryNextTurn) {
             recovery = Math.floor(recovery / 2);
             addLog(`--- あなたのターン (防御ペナルティ) ---`);
@@ -1047,7 +1075,7 @@ function startPlayerTurn(isFirstTurn = false) {
         }
 
         GAME_STATE.player.guts = Math.min(100, GAME_STATE.player.guts + recovery);
-        addLog(`ガッツが ${recovery} 回復した！(現在: ${Math.floor(GAME_STATE.player.guts)})`);
+        addLog(`ガッツが ${recovery} 回復した！${extraRecoverMsg} (現在: ${Math.floor(GAME_STATE.player.guts)})`);
         showEffect('🔥 YOUR TURN 🔥');
     } else {
         addLog(`--- あなたのターン (初期GUTS: 50) ---`);
@@ -1122,6 +1150,55 @@ function updateBattleStatsUI() {
 
     const recoveryVal = Math.floor((p.stats.gutsSpeed || 15) + 30);
     document.getElementById('turn-guts-notice').textContent = `💡 あなたのガッツ回復力: +${recoveryVal} / ターン`;
+
+    // 状態変化UIの更新
+    updateStatusEffectUI();
+}
+
+// 状態変化表示のUI制御
+function updateStatusEffectUI() {
+    const el = document.getElementById('player-status-effect-display');
+    if (!el) return;
+
+    const p = GAME_STATE.player;
+    if (p && GAME_STATE.playerStatusEffect === "集中" && p.guts > 90 && !GAME_STATE.isShuchuActive) {
+        GAME_STATE.isShuchuActive = true;
+        addLog(`🎯 集中が発動！次の技の命中率 1.5 倍、ダメージが 1.2 倍に上昇！`);
+    }
+
+    let showText = "";
+
+    if (GAME_STATE.isGyakujoActive) {
+        showText = "逆上";
+    } else if (GAME_STATE.isSokojikaraActive) {
+        showText = "底力";
+    } else if (GAME_STATE.playerStatusEffect === "闘魂" && GAME_STATE.enemy && GAME_STATE.enemy.guts > 70) {
+        showText = "闘魂";
+    } else if (GAME_STATE.isShuchuActive) {
+        showText = "集中";
+    }
+
+    if (showText) {
+        el.textContent = showText;
+        el.classList.remove('hidden');
+    } else {
+        if (!el.dataset.temporaryActive) {
+            el.classList.add('hidden');
+        }
+    }
+}
+
+// 根性などの一時的な状態変化の点滅表示
+function triggerTemporaryStatusEffect(effectName) {
+    const el = document.getElementById('player-status-effect-display');
+    if (!el) return;
+    el.textContent = effectName;
+    el.classList.remove('hidden');
+    el.dataset.temporaryActive = "true";
+    setTimeout(() => {
+        delete el.dataset.temporaryActive;
+        updateStatusEffectUI();
+    }, 2500); // 2.5秒間点滅表示
 }
 
 function renderBattleSkills() {
@@ -1255,7 +1332,13 @@ function executePlayerSkill(skKey) {
     setTimeout(() => {
         if (sk.type === 'pow' || sk.type === 'int') {
             const isCertain = effectiveSk.hitRate === 100;
-            const hitChance = isCertain ? 100 : Math.max(10, Math.min(99, (effectiveSk.hitRate + mods.hitMod) + (p.stats.hit - e.stats.spd) * 0.5));
+            let hitChance = isCertain ? 100 : Math.max(10, Math.min(99, (effectiveSk.hitRate + mods.hitMod) + (p.stats.hit - e.stats.spd) * 0.5));
+            
+            // 集中効果の適用 (命中率1.5倍)
+            if (GAME_STATE.isShuchuActive && !isCertain) {
+                hitChance = Math.min(99, hitChance * 1.5);
+            }
+
             const isHit = isCertain || (Math.random() * 100 < hitChance);
 
             if (isHit) {
@@ -1283,21 +1366,38 @@ function executePlayerSkill(skKey) {
                     addLog(`💀 相手はガッツが無く無防備だ！大ダメージのチャンス！`);
                 }
 
+                // 底力・集中のダメージ補正適用
+                let extraDmgMsg = "";
+                if (GAME_STATE.isSokojikaraActive) {
+                    damage = Math.floor(damage * 1.5);
+                    extraDmgMsg += " (底力×1.5)";
+                }
+                if (GAME_STATE.isShuchuActive) {
+                    damage = Math.floor(damage * 1.2);
+                    extraDmgMsg += " (集中×1.2)";
+                }
+
                 let isCrit = Math.random() < 0.10;
                 if (isCrit) {
                     damage = Math.floor(damage * 1.5);
-                    addLog(`★クリティカルヒット！ ${e.name} に ${damage} ダメージ！`);
+                    addLog(`★クリティカルヒット！ ${e.name} に ${damage} ダメージ！${extraDmgMsg}`);
                 } else {
-                    addLog(`${e.name} に ${damage} ダメージ！`);
+                    addLog(`${e.name} に ${damage} ダメージ！${extraDmgMsg}`);
                 }
 
                 e.stats.life = Math.max(0, e.stats.life - damage);
                 GAME_STATE.totalDamageDealt += damage;
                 
-                if (sk.gutsDown > 0) {
-                    const actualGutsDown = Math.min(e.guts, sk.gutsDown);
+                // 逆上効果の適用 (与ガッツダウン1.2倍)
+                let finalGutsDown = sk.gutsDown || 0;
+                if (GAME_STATE.isGyakujoActive && finalGutsDown > 0) {
+                    finalGutsDown = Math.floor(finalGutsDown * 1.2);
+                }
+
+                if (finalGutsDown > 0) {
+                    const actualGutsDown = Math.min(e.guts, finalGutsDown);
                     e.guts = Math.max(0, e.guts - actualGutsDown);
-                    addLog(`さらに！相手のガッツを ${actualGutsDown} 奪い取った！ (現在: ${Math.floor(e.guts)})`);
+                    addLog(`さらに！相手のガッツを ${actualGutsDown} 奪い取った！${GAME_STATE.isGyakujoActive ? " (逆上×1.2)" : ""} (現在: ${Math.floor(e.guts)})`);
                 }
                 
                 showEffect(isCrit ? '💥 CRITICAL!! 💥' : '💥 HIT! 💥');
@@ -1309,6 +1409,10 @@ function executePlayerSkill(skKey) {
                 showEffect('💨 MISS 💨');
                 showDamagePopup('enemy-dmg-popup', 'MISS', false);
             }
+
+            // 攻撃技実行完了後の効果消費
+            GAME_STATE.isSokojikaraActive = false;
+            GAME_STATE.isShuchuActive = false;
 
         } else if (sk.type === 'buff_pow') {
             p.stats.pow += 15;
@@ -1428,11 +1532,39 @@ function executeEnemyTurn() {
 
                         p.stats.life = Math.max(0, p.stats.life - damage);
                         addLog(`${p.name} は ${damage} ダメージを受けた！`);
+
+                        // 根性の発動判定
+                        if (p.stats.life === 0 && GAME_STATE.playerStatusEffect === "根性") {
+                            if (Math.random() < 0.50) {
+                                p.stats.life = 1;
+                                addLog(`✨ 根性が発動！ ${p.name} は力尽きず、ライフ 1 で耐え抜いた！`);
+                                triggerTemporaryStatusEffect("根性");
+                            }
+                        }
+
+                        // 底力の発動判定 (ライフ3割未満で発動、次の技ダメージ1.5倍)
+                        if (GAME_STATE.playerStatusEffect === "底力" && !GAME_STATE.isSokojikaraFired) {
+                            if (p.stats.life > 0 && p.stats.life < p.stats.maxLife * 0.3) {
+                                GAME_STATE.isSokojikaraFired = true;
+                                GAME_STATE.isSokojikaraActive = true;
+                                addLog(`💪 底力が発動！窮地に陥ったことで、次の技のダメージが 1.5 倍に上昇！`);
+                                updateStatusEffectUI();
+                            }
+                        }
                         
                         if (sk.gutsDown > 0) {
                             const actualGutsDown = Math.min(p.guts, sk.gutsDown);
                             p.guts = Math.max(0, p.guts - actualGutsDown);
                             addLog(`さらに！ ${p.name} のガッツが ${actualGutsDown} 奪われた！ (現在: ${Math.floor(p.guts)})`);
+
+                            // 逆上の発動判定
+                            if (GAME_STATE.playerStatusEffect === "逆上" && !GAME_STATE.isGyakujoActive) {
+                                if (Math.random() < 0.65) {
+                                    GAME_STATE.isGyakujoActive = true;
+                                    addLog(`💢 逆上が発動！ ${p.name} の怒りが頂点に達し、ガッツ回復速度と与えるガッツダウン量が 1.2 倍に上昇！`);
+                                    updateStatusEffectUI();
+                                }
+                            }
                         }
 
                         showEffect('⚡ 被弾!! ⚡');
@@ -1563,14 +1695,242 @@ function showBattleResultScreen(droppedItem) {
     changeScreen('screen-battle-result');
 }
 
-function confirmBattleResult() {
-    GAME_STATE.floor++;
-    GAME_STATE.actionPerformedThisFloor = false; 
+// 状態変化付与強制イベント画面のセットアップ
+function setupStatusEffectEvent() {
+    document.getElementById('event-tag').textContent = '🔮 FORCE EVENT / 潜在能力覚醒';
+    document.getElementById('event-tag').className = 'text-xs text-red-500 tracking-wider font-extrabold animate-pulse';
+    document.getElementById('event-title').textContent = '状態変化の目覚め';
+    document.getElementById('event-visual').textContent = '🔮';
+    document.getElementById('event-description').textContent = 
+        '中ボス【ゴビ】を打ち破ったことで、モンスターの奥底に眠る潜在能力が共鳴している…！モンスターにランダムな【状態変化】が宿ります。';
+    document.getElementById('event-result').classList.add('hidden');
 
-    if (GAME_STATE.floor > 30) {
-        endGame(true);
+    const choicesContainer = document.getElementById('event-choices-container');
+    choicesContainer.innerHTML = '';
+
+    const btn = document.createElement('button');
+    btn.className = 'w-full py-4 bg-gradient-to-r from-red-800 to-amber-600 hover:from-red-700 hover:to-amber-500 text-white font-extrabold rounded-xl text-sm shadow-lg transition-all active:scale-95 border border-red-500';
+    btn.textContent = '✨ 秘められた能力を開花させる！';
+    btn.onclick = () => {
+        const effects = ["根性", "逆上", "底力", "闘魂", "集中"];
+        const chosen = effects[Math.floor(Math.random() * effects.length)];
+        GAME_STATE.playerStatusEffect = chosen;
+
+        let desc = "";
+        if (chosen === "根性") desc = "根性：相手から攻撃を受けてライフが0になった場合、50%の確率でライフ1で復活します。";
+        else if (chosen === "逆上") desc = "逆上：相手からガッツダウンを受けた時に65%の確率で発動、自身のターン開始時のガッツ回復量1.2倍、与えるガッツダウン量1.2倍";
+        else if (chosen === "底力") desc = "底力：自身のライフが最大ライフの3割を切った時に発動。発動後の1回目の技のダメージ量1.5倍";
+        else if (chosen === "闘魂") desc = "闘魂：相手のガッツが70を超えた時に発動。自身のターン開始時のガッツ回復量1.5倍";
+        else if (chosen === "集中") desc = "集中：自身のガッツが90を超えた時に発動。発動後の1回目の技の命中率1.5倍＋ダメージ量1.2倍";
+
+        const resultBox = document.getElementById('event-result');
+        resultBox.innerHTML = `<span class="text-red-500 text-base font-black">【${chosen}】</span>の能力が目覚めた！<br><span class="text-xs text-gray-300 font-normal block mt-2">${desc}</span>`;
+        resultBox.classList.remove('hidden');
+
+        choicesContainer.innerHTML = `
+            <button onclick="endStatusEffectEvent()" class="w-full py-4 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl text-xs shadow-md transition-all">
+                冒険を再開する (11階へ)
+            </button>
+        `;
+    };
+    choicesContainer.appendChild(btn);
+
+    changeScreen('screen-event');
+}
+
+function endStatusEffectEvent() {
+    goToAdventure();
+}
+
+function confirmBattleResult() {
+    if (GAME_STATE.floor === 10 && GAME_STATE.isBossBattle) {
+        GAME_STATE.floor++;
+        GAME_STATE.isBossBattle = false;
+        GAME_STATE.actionPerformedThisFloor = false;
+        setupStatusEffectEvent();
     } else {
-        goToAdventure();
+        GAME_STATE.floor++;
+        GAME_STATE.actionPerformedThisFloor = false; 
+
+        if (GAME_STATE.floor > 30) {
+            endGame(true);
+        } else {
+            goToAdventure();
+        }
+    }
+}
+
+// ゲームオーバー時のヒント生成
+function getGameOverHint() {
+    const floor = GAME_STATE.floor;
+    const p = GAME_STATE.player;
+    
+    // ボス戦での敗北
+    if (GAME_STATE.isBossBattle) {
+        if (floor === 10) {
+            return "中ボス『ゴビ』は『ちから』が極めて高く、一撃が致命傷になります。しかし『命中』と『回避』が低いため、トレーニングで『回避』を鍛えて攻撃をかわすか、『丈夫さ』を高めて被ダメージを抑えましょう。また、ガッツダウン技で相手のガッツを削れば、大技『ローリング激突』の頻度を下げられます。";
+        }
+        if (floor === 20) {
+            return "中ボス『デュラハン』は非常に『丈夫さ』が高く、中途半端な攻撃力ではダメージが通りません。トレーニングで『ちから』や『かしこさ』をしっかり高めて挑みましょう。また、相手は『きあい』で攻撃力を高めてくるため、敵の攻撃ターンは『防御して終了』を使ってダメージを軽減するのが極めて有効です。";
+        }
+        if (floor === 30) {
+            return "伝説の邪神『モスト』は、回避不能の必中技『なめる』や、壊滅的ダメージを与える『メテオバースト』を放ちます。相手のガッツが溜まると手がつけられなくなるため、ガッツダウン効果の高い技（モッシーの『もっさま』、スエゾーの『歌う』など）を主軸にし、相手のガッツを常に低く保ちながら戦うのが勝利の鍵です。";
+        }
+    }
+    
+    // 道中での敗北
+    // ライフが極端に低い場合
+    if (p && p.stats.maxLife < 220) {
+        return "最大ライフが低いため、敵のクリティカルや連続攻撃で力尽きやすくなっています。序盤は『走り込み』や『ライフパン』を優先し、最大ライフを220〜250程度まで引き上げることで、生存率が劇的に向上します。";
+    }
+    
+    // ガッツ補正に関する一般的なアドバイス
+    const rand = Math.random();
+    if (rand < 0.5) {
+        return "【ガッツ補正の重要性】本作では自身のガッツ量に応じて『与ダメージ（最大1.5倍）』と『命中率（最大+15%）』がアップします。逆にガッツが少ない状態で攻撃すると、与えるダメージが半減し、受けるダメージが1.5倍に跳ね上がります。焦って技を連発せず、ガッツを70〜90程度まで溜めてから一気に強力な技を叩き込むのが基本戦術です。";
+    } else {
+        return "【ボスの攻撃パターンと防御】ボスモンスターはガッツが溜まると消費ガッツの大きい大技を優先して使ってきます。敵のガッツが溜まっている状態の時は、無理に攻撃せず『防御して終了』を選択しましょう。受けるダメージが半減し、次のターンを安全に迎えることができます。";
+    }
+}
+
+function endGame(isClear) {
+    const p = GAME_STATE.player;
+    const resTitle = document.getElementById('result-title');
+    const resSubtitle = document.getElementById('result-subtitle');
+    const resBadge = document.getElementById('result-badge');
+    const rankText = document.getElementById('result-rank-text');
+    const rankDesc = document.getElementById('result-rank-desc');
+    const heritageSection = document.getElementById('heritage-section');
+    const hintBox = document.getElementById('gameover-hint-box');
+    const hintText = document.getElementById('gameover-hint-text');
+
+    const totalDmg = GAME_STATE.totalDamageDealt;
+    const totalAct = Math.max(1, GAME_STATE.totalActions);
+    const multiplier = totalDmg / totalAct;
+    const baseScore = Math.floor(totalDmg * multiplier);
+    const clearBonus = isClear ? 1.5 : 1.0; 
+    const finalScore = Math.floor(baseScore * clearBonus);
+
+    document.getElementById('result-difficulty').textContent = GAME_STATE.difficulty.toUpperCase();
+    document.getElementById('result-final-floor').textContent = `${GAME_STATE.floor - (isClear ? 1 : 0)} / 30`;
+    document.getElementById('result-total-actions').textContent = totalAct;
+    document.getElementById('result-total-damage').textContent = totalDmg.toLocaleString();
+    document.getElementById('result-multiplier').textContent = `×${multiplier.toFixed(1)}`;
+    document.getElementById('result-final-score').textContent = finalScore.toLocaleString();
+
+    const clearBonusEl = document.getElementById('result-clear-bonus');
+    if (clearBonusEl) {
+        if (isClear) {
+            clearBonusEl.textContent = '🏆 クリアボーナス ×1.5';
+            clearBonusEl.classList.remove('hidden');
+        } else {
+            clearBonusEl.classList.add('hidden');
+        }
+    }
+
+    if (isClear) {
+        resTitle.textContent = "CONGRATULATIONS!";
+        resTitle.className = "text-2xl font-black text-amber-500 pixel-font";
+        resSubtitle.textContent = "ブリーダーとして、30階層の栄光を掴み取りました！";
+        resBadge.textContent = "🏆";
+
+        if (finalScore >= 80000) {
+            rankText.textContent = "👑 神の領域のレジェンドブリーダー";
+            rankDesc.textContent = "圧倒的な与ダメージ効率！運と戦術、すべてを極めた神 of 化身です。";
+        } else if (finalScore >= 30000) {
+            rankText.textContent = "🥇 天才ブリーダー";
+            rankDesc.textContent = "無駄のない素晴らしいトレーニングと的確な戦術でモンスターを導きました。";
+        } else if (finalScore >= 10000) {
+            rankText.textContent = "🥈 一流ブリーダー";
+            rankDesc.textContent = "モンスターとの強い絆で見事完走！次はさらなる高みを目指しましょう。";
+        } else {
+            rankText.textContent = "🥉 熟練ブリーダー";
+            rankDesc.textContent = "クリアおめでとう！攻撃技を積極的に使うとスコアが伸びます。";
+        }
+
+        if (hintBox) hintBox.classList.add('hidden');
+
+        let template = MONSTER_TEMPLATES.mochi; 
+        if (p.emoji === '👁️') template = MONSTER_TEMPLATES.suezo;
+        if (p.emoji === '🦖') template = MONSTER_TEMPLATES.dino;
+
+        let defaultSkills = [];
+        if (template.id === 'mochi') defaultSkills = ['monta', 'mochiki', 'sakurafubuki'];
+        if (template.id === 'suezo') defaultSkills = ['shippobinta', 'nameru', 'kamitsuki'];
+        if (template.id === 'dino') defaultSkills = ['shippo', 'kamitsuki_dino', 'sunakake'];
+
+        const additionalSkills = p.skills.filter(s => !defaultSkills.includes(s));
+
+        if (additionalSkills.length > 0) {
+            heritageSection.classList.remove('hidden');
+            const hList = document.getElementById('heritage-skills-list');
+            hList.innerHTML = '';
+            additionalSkills.forEach(skKey => {
+                const sk = SKILLS_DB[skKey];
+                if (!sk) return;
+                const btn = document.createElement('button');
+                btn.className = "p-2 bg-cyan-950 hover:bg-cyan-900 border border-cyan-700 text-cyan-200 text-[11px] font-bold rounded-xl transition-all text-center";
+                btn.textContent = `【${sk.name}】を継承`;
+                btn.onclick = () => {
+                    saveInheritedSkill(skKey);
+                    showToast(`秘技【${sk.name}】を次回のプレイに引き継ぎました！`);
+                    restartGame();
+                };
+                hList.appendChild(btn);
+            });
+        } else {
+            heritageSection.classList.add('hidden');
+        }
+
+    } else {
+        resTitle.textContent = "GAME OVER";
+        resTitle.className = "text-2xl font-black text-red-500 pixel-font";
+        resSubtitle.textContent = `第 ${GAME_STATE.floor} 階層にて、モンスターが倒れてしまいました…`;
+        resBadge.textContent = "💀";
+
+        if (finalScore >= 30000) {
+            rankText.textContent = "🥇 惜しかった天才ブリーダー";
+            rankDesc.textContent = "与ダメ効率は抜群！あとはもう少しの粘りで栄光が見えていた。";
+        } else if (finalScore >= 10000) {
+            rankText.textContent = "🥈 奮闘した一流ブリーダー";
+            rankDesc.textContent = "よく戦いました。育成と休養のバランスをもう一度見直してみましょう。";
+        } else {
+            rankText.textContent = "新米ブリーダー";
+            rankDesc.textContent = "育成と休養のバランス、バトルでのガッツ管理をもう一度見直してみましょう。";
+        }
+
+        if (hintBox && hintText) {
+            hintText.textContent = getGameOverHint();
+            hintBox.classList.remove('hidden');
+        }
+
+        heritageSection.classList.add('hidden');
+    }
+
+    submitScore(GAME_STATE.playerName, p.name, finalScore, GAME_STATE.difficulty, GAME_STATE.floor - (isClear ? 1 : 0), isClear);
+
+    changeScreen('screen-result');
+}
+
+function endStatusEffectEvent() {
+    goToAdventure();
+}
+
+function confirmBattleResult() {
+    if (GAME_STATE.floor === 10 && GAME_STATE.isBossBattle) {
+        GAME_STATE.floor++;
+        GAME_STATE.isBossBattle = false;
+        GAME_STATE.actionPerformedThisFloor = false;
+        setupStatusEffectEvent();
+    } else {
+        GAME_STATE.floor++;
+        GAME_STATE.actionPerformedThisFloor = false; 
+
+        if (GAME_STATE.floor > 30) {
+            endGame(true);
+        } else {
+            goToAdventure();
+        }
     }
 }
 
@@ -1737,17 +2097,29 @@ async function submitScore(playerName, monsterName, score, difficulty, floor, is
             actions: GAME_STATE.totalActions,
             ts: Date.now()
         };
+        // モンスター毎に別パスへ保存（モンスター毎に最大10件管理）
         const path = `rankings/${difficulty}`;
         await firebaseDb.ref(path).push(entry);
 
+        // モンスター毎にデータ件数を制限（各モンスター最大10件）
         const snap = await firebaseDb.ref(path).once('value');
-        const all = [];
-        snap.forEach(child => all.push({ key: child.key, score: child.val().score }));
-        if (all.length > 10) {
-            all.sort((a, b) => a.score - b.score);
-            const toDelete = all.slice(0, all.length - 10);
-            for (const item of toDelete) {
-                await firebaseDb.ref(`${path}/${item.key}`).remove();
+        const byMonster = {};
+        snap.forEach(child => {
+            const val = child.val();
+            if (!val || typeof val.score !== 'number') return;
+            const mName = val.monster || 'unknown';
+            if (!byMonster[mName]) byMonster[mName] = [];
+            byMonster[mName].push({ key: child.key, score: val.score });
+        });
+        // モンスター毎に最大10件を超えた古いデータを削除
+        for (const mName of Object.keys(byMonster)) {
+            const list = byMonster[mName];
+            if (list.length > 10) {
+                list.sort((a, b) => a.score - b.score);
+                const toDelete = list.slice(0, list.length - 10);
+                for (const item of toDelete) {
+                    await firebaseDb.ref(`${path}/${item.key}`).remove();
+                }
             }
         }
     } catch (e) {
@@ -1756,9 +2128,14 @@ async function submitScore(playerName, monsterName, score, difficulty, floor, is
 }
 
 let currentRankingTab = 'normal';
+let currentMonsterFilter = 'all';
+
 function showRanking() {
+    currentMonsterFilter = 'all';
     changeScreen('screen-ranking');
     switchRankingTab('normal');
+    // モンスタータブの初期状態をリセット
+    switchMonsterTab('all');
 }
 
 function switchRankingTab(difficulty) {
@@ -1772,10 +2149,32 @@ function switchRankingTab(difficulty) {
         hardBtn.className = 'flex-1 py-2 text-xs font-bold rounded-lg border transition-all bg-red-900 border-red-600 text-red-300';
         normalBtn.className = 'flex-1 py-2 text-xs font-bold rounded-lg border transition-all bg-[#2a1b15] border-amber-900 text-gray-400';
     }
-    loadRanking(difficulty);
+    loadRanking(difficulty, currentMonsterFilter);
 }
 
-async function loadRanking(difficulty) {
+// モンスター別フィルタタブの切り替え
+function switchMonsterTab(monsterName) {
+    currentMonsterFilter = monsterName;
+
+    // タブのID→モンスター名マッピング
+    const tabs = {
+        'all':    { id: 'rank-tab-all',   active: 'bg-amber-700 border-amber-500 text-white',           inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
+        'モッチー': { id: 'rank-tab-mochi', active: 'bg-amber-800 border-amber-500 text-amber-200',        inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
+        'スエゾー': { id: 'rank-tab-suezo', active: 'bg-cyan-900 border-cyan-500 text-cyan-200',           inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
+        'ディノ':   { id: 'rank-tab-dino',  active: 'bg-emerald-900 border-emerald-500 text-emerald-200',  inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
+    };
+
+    const baseClass = 'flex-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all flex items-center justify-center ';
+    for (const [key, tab] of Object.entries(tabs)) {
+        const btn = document.getElementById(tab.id);
+        if (!btn) continue;
+        btn.className = baseClass + (key === monsterName ? tab.active : tab.inactive);
+    }
+
+    loadRanking(currentRankingTab, monsterName);
+}
+
+async function loadRanking(difficulty, monsterFilter = 'all') {
     const container = document.getElementById('ranking-list-container');
     container.innerHTML = '<div class="text-center text-gray-500 text-xs py-8">読み込み中...</div>';
 
@@ -1794,15 +2193,25 @@ async function loadRanking(difficulty) {
             }
         });
 
-        entries.sort((a, b) => b.score - a.score);
-        const top10 = entries.slice(0, 10);
+        // モンスターでフィルタリング
+        const filtered = (monsterFilter === 'all')
+            ? entries
+            : entries.filter(e => e.monster === monsterFilter);
 
+        filtered.sort((a, b) => b.score - a.score);
+        const top10 = filtered.slice(0, 10);
+
+        const filterLabel = monsterFilter === 'all' ? 'すべて' : monsterFilter;
         if (top10.length === 0) {
-            container.innerHTML = '<div class="text-center text-gray-500 text-xs py-8">まだ記録がありません。<br>最初のブリーダーになろう！</div>';
+            container.innerHTML = `<div class="text-center text-gray-500 text-xs py-8">【${filterLabel}】の記録はまだありません。<br>最初のブリーダーになろう！</div>`;
             return;
         }
 
         const rankIcons = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
+
+        // モンスター名→絵文字のフォールバックマップ
+        const monsterEmojiMap = { 'モッチー': '🍪', 'スエゾー': '👁️', 'ディノ': '🦖' };
+
         const rows = top10.map(function(entry, i) {
             const rankIcon = rankIcons[i] !== undefined ? rankIcons[i] : ((i + 1) + '位');
             const clearBadge = entry.clear
@@ -1814,14 +2223,25 @@ async function loadRanking(difficulty) {
             const displayName = entry.playerName ? entry.playerName : 'ブリーダー';
             const scoreStr = entry.score.toLocaleString();
             const damageStr = (entry.damage || 0).toLocaleString();
-            return '<div class="bg-[#2a1b15] border border-amber-900/50 rounded-xl p-2.5 flex items-center space-x-3">'
+
+            // モンスターアイコン: PNG画像を試みて失敗時は絵文字でフォールバック
+            const mName = entry.monster || '';
+            const mEmoji = monsterEmojiMap[mName] || '🐾';
+            const monsterIcon = '<img src="images/' + mName + '.png"'
+                + ' alt="' + mName + '"'
+                + ' class="w-8 h-8 object-contain flex-shrink-0 rounded-full bg-[#1a120b] border border-amber-900/40 p-0.5"'
+                + ' onerror="this.outerHTML=\'<span class=&quot;text-xl w-8 h-8 flex items-center justify-center flex-shrink-0&quot;>' + mEmoji + '</span>\'"'
+                + '>';
+
+            return '<div class="bg-[#2a1b15] border border-amber-900/50 rounded-xl p-2.5 flex items-center space-x-2">'
                 + '<div class="text-lg w-8 text-center flex-shrink-0">' + rankIcon + '</div>'
+                + monsterIcon
                 + '<div class="flex-1 min-w-0">'
                 + '<div class="flex items-center">'
                 + '<span class="text-xs font-bold text-amber-300 truncate">' + displayName + '</span>'
                 + clearBadge
                 + '</div>'
-                + '<div class="text-[9px] text-gray-300 font-bold truncate">' + entry.monster + '</div>'
+                + '<div class="text-[9px] text-gray-300 font-bold truncate">' + mName + '</div>'
                 + '<div class="text-[9px] text-gray-400 mt-0.5">ダメ:' + damageStr + ' / 行動:' + (entry.actions || 0) + ' / 倍率:×' + mult + '</div>'
                 + '</div>'
                 + '<div class="text-right flex-shrink-0">'
@@ -1830,12 +2250,14 @@ async function loadRanking(difficulty) {
                 + '</div>'
                 + '</div>';
         });
+
         container.innerHTML = rows.join('');
     } catch (err) {
         console.error('[Firebase] ランキング取得エラー:', err);
         container.innerHTML = '<div class="text-center text-red-400 text-xs py-8">取得に失敗しました。<br><span class="text-[9px] text-gray-500">' + err.message + '</span></div>';
     }
 }
+
 
 // バトル用アニメーション/エフェクト演出関数
 function addLog(text) {

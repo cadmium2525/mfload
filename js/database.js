@@ -156,7 +156,7 @@ const ENEMY_TEMPLATES = [
     { name: 'ハム', emoji: '🐇', type: 'ハム種', maxLife: 90, pow: 25, int: 20, hit: 40, spd: 45, def: 20, skills: ['shippobinta'] },
     { name: 'アローヘッド', emoji: '🦀', type: 'アローヘッド種', maxLife: 110, pow: 35, int: 15, hit: 35, spd: 20, def: 55, skills: ['kamitsuki'] },
     { name: 'ネンドロ', emoji: '👤', type: 'ネンドロ種', maxLife: 100, pow: 20, int: 35, hit: 45, spd: 30, def: 35, skills: ['nameru'] }, // なめる（必中技）持ち
-    { name: 'ロードランナー', emoji: '🦕', type: 'ロードランナー種', maxLife: 85, pow: 30, int: 25, hit: 50, spd: 55, def: 15, skills: ['shippobinta', 'kamitsuki'] },
+    { name: 'ヘンガー', emoji: '🤖', type: 'ヘンガー種', maxLife: 95, pow: 35, int: 30, hit: 55, spd: 30, def: 40, skills: ['kamitsuki', 'sunakake'] },
     { name: 'プラント', emoji: '🌸', type: 'プラント種', maxLife: 130, pow: 15, int: 40, hit: 40, spd: 25, def: 30, skills: ['nameru'] } // なめる（必中技）持ち
 ];
 

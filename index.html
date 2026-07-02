@@ -301,6 +301,8 @@
 
                     <!-- 味方モンスター -->
                     <div class="flex flex-col items-center relative transition-all duration-300" id="battle-player-sprite-container">
+                        <!-- 状態変化表示 (赤の太文字で点滅) -->
+                        <div id="player-status-effect-display" class="absolute -top-7 text-xs font-black text-red-500 animate-status-blink hidden z-10"></div>
                         <div class="relative w-16 h-16 flex items-center justify-center mb-2 animate-pulse" id="battle-player-icon">
                             🍪
                         </div>
@@ -470,6 +472,12 @@
                         <p class="text-[10px] text-gray-400 leading-relaxed" id="result-rank-desc">素晴らしい手腕！まさにモンスターと一心同体です。</p>
                     </div>
 
+                    <!-- ゲームオーバー時のヒントエリア -->
+                    <div id="gameover-hint-box" class="hidden mt-3 p-3 bg-red-950/60 border border-red-800/50 rounded-xl text-left space-y-1">
+                        <p class="text-xs text-red-400 font-bold">💡 育成のヒント:</p>
+                        <p id="gameover-hint-text" class="text-[10px] text-gray-300 leading-relaxed"></p>
+                    </div>
+
                     <!-- ==================== スキル継承セクション (LocalStorage連動) ==================== -->
                     <div id="heritage-section" class="border-t border-amber-800 pt-3 text-left hidden">
                         <p class="text-xs text-cyan-400 font-bold mb-2">🧬 技の継承（次回プレイに1つ引き継ぎ可能！）</p>
@@ -501,10 +509,28 @@
                     <button id="rank-tab-hard" onclick="switchRankingTab('hard')" class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all bg-[#2a1b15] border-amber-900 text-gray-400">ハード 💀</button>
                 </div>
 
+                <!-- モンスター別フィルタタブ -->
+                <div class="flex space-x-1.5" id="monster-tab-group">
+                    <button id="rank-tab-all" onclick="switchMonsterTab('all')" class="flex-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all bg-amber-700 border-amber-500 text-white">すべて</button>
+                    <button id="rank-tab-mochi" onclick="switchMonsterTab('モッチー')" class="flex-1 py-1 text-[9px] font-bold rounded-lg border transition-all bg-[#2a1b15] border-amber-900 text-gray-400 flex flex-col items-center gap-0.5">
+                        <img src="images/モッチー.png" alt="モッチー" class="w-5 h-5 object-contain" onerror="this.outerHTML='<span class=&quot;text-lg&quot;>🍪</span>'">
+                        <span>モッチー</span>
+                    </button>
+                    <button id="rank-tab-suezo" onclick="switchMonsterTab('スエゾー')" class="flex-1 py-1 text-[9px] font-bold rounded-lg border transition-all bg-[#2a1b15] border-amber-900 text-gray-400 flex flex-col items-center gap-0.5">
+                        <img src="images/スエゾー.png" alt="スエゾー" class="w-5 h-5 object-contain" onerror="this.outerHTML='<span class=&quot;text-lg&quot;>👁️</span>'">
+                        <span>スエゾー</span>
+                    </button>
+                    <button id="rank-tab-dino" onclick="switchMonsterTab('ディノ')" class="flex-1 py-1 text-[9px] font-bold rounded-lg border transition-all bg-[#2a1b15] border-amber-900 text-gray-400 flex flex-col items-center gap-0.5">
+                        <img src="images/ディノ.png" alt="ディノ" class="w-5 h-5 object-contain" onerror="this.outerHTML='<span class=&quot;text-lg&quot;>🦖</span>'">
+                        <span>ディノ</span>
+                    </button>
+                </div>
+
                 <!-- ランキングリスト -->
                 <div class="flex-1 overflow-y-auto space-y-1.5 pr-1" id="ranking-list-container">
                     <div class="text-center text-gray-500 text-xs py-8">読み込み中...</div>
                 </div>
+
 
                 <button onclick="restartGame()" class="w-full py-3 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs border border-amber-800 transition-all active:scale-95">
                     タイトルに戻る
