@@ -20,6 +20,13 @@ const MONSTER_TEMPLATES = {
         emoji: '🦖',
         desc: '恐竜のような獰猛な外見。ちからと丈夫さに優れ、大ダメージを与える大技を放つ。',
         stats: { maxLife: 250, life: 250, pow: 60, int: 25, hit: 45, spd: 35, def: 50, gutsSpeed: 12 }
+    },
+    monolith: {
+        id: 'monolith',
+        name: 'モノリス',
+        emoji: '🗿',
+        desc: '古代より佇む謎の岩石生命体。動きは鈍く回避は苦手だが、岩の肉体は並外れた丈夫さを誇り、ちから・かしこさ両面の技を使いこなす。',
+        stats: { maxLife: 235, life: 235, pow: 48, int: 44, hit: 42, spd: 26, def: 62, gutsSpeed: 13 }
     }
 };
 
@@ -53,6 +60,15 @@ const SKILLS_DB = {
     honoo_taiatari: { name: '炎のたいあたり', cost: 40, type: 'pow', hitRate: 65, force: 2.4, gutsDown: 15, effect: null, desc: '燃え盛る炎を纏って突進する。相手GUTS-15' },
     hizageri: { name: 'ひざげり', cost: 25, type: 'pow', hitRate: 80, force: 1.5, gutsDown: 10, effect: null, desc: '鋭い跳び膝蹴りを叩き込む。相手GUTS-10' },
     kurohizacombo: { name: '黒ひざコンボ', cost: 50, type: 'pow', hitRate: 75, force: 2.8, gutsDown: 15, effect: null, desc: '連続で膝蹴りを叩き込む破壊技。相手GUTS-15' },
+
+    // --- モノリス系統 ---
+    monotaore: { name: 'たおれこみ', cost: 15, type: 'pow', hitRate: 85, force: 0.8, gutsDown: 10, effect: null, desc: '巨体を活かした体当たり基本技。相手GUTS-10' },
+    warawara: { name: 'わらわら', cost: 25, type: 'pow', hitRate: 80, force: 1.1, gutsDown: 15, effect: 'weaken_pow_int', desc: '奇妙な唸り声で相手を威圧する。相手GUTS-15。さらに3ターンの間、相手の「ちから」「かしこさ」を10%低下させる' },
+    cho_monotaore: { name: '超たおれこみ', cost: 40, type: 'pow', hitRate: 70, force: 1.8, gutsDown: 20, effect: null, desc: '全体重を乗せた渾身の体当たり。相手GUTS-20' },
+    sanren_attack: { name: '3連アタック', cost: 50, type: 'pow', hitRate: 70, force: 2.8, gutsDown: 25, effect: null, desc: '硬い岩の腕を叩きつける三段攻撃。相手GUTS-25' },
+    sakebigoe: { name: 'サケビ声', cost: 20, type: 'int', hitRate: 95, force: 0.75, gutsDown: 15, effect: 'confuse_30', desc: '甲高い叫び声で相手の精神を揺さぶる高命中技。相手GUTS-15。さらに命中した場合、3回の行動の間30%の確率で相手を混乱させる（混乱中は行動に失敗する）' },
+    aurora_gate: { name: 'オーロラゲート', cost: 30, type: 'int', hitRate: 80, force: 1.7, gutsDown: 15, effect: 'next_force_up', desc: '虹色の門を展開し力を収束させる。相手GUTS-15。さらに命中した場合、自身が次に繰り出す技の威力が50%アップする' },
+    trio_beam_z: { name: 'トリオビームZ', cost: 55, type: 'int', hitRate: 65, force: 2.8, gutsDown: 30, effect: null, desc: '三条の破壊光線を放つ最大出力の切り札。相手GUTS-30' },
 
     // --- 敵・ボス共用 ---
     boss_bite: { name: 'かみつき', cost: 20, type: 'pow', hitRate: 75, force: 1.2, gutsDown: 10, effect: null, desc: '鋭い牙でガッツを奪う攻撃' },
@@ -111,6 +127,65 @@ function getDamageRank(force, type) {
     if (force >= 0.7) return 'E';
     if (force >= 0.3) return 'F';
     return 'G';
+}
+
+// =====================================================
+// 新規状態効果ヘルパー（モノリスの技「わらわら」「サケビ声」「オーロラゲート」用）
+// 育成中バトル(game.js)／マスモンCPU対戦(masmon_battle.js)／
+// リアルタイム対戦(masmon_realtime_battle.js) の3系統から共通で利用する。
+// 対象ユニットは weakenTurns / confuseTurns / forceBoost の3フィールドを持つ前提。
+// =====================================================
+
+// --- 技が命中した際の追加効果（衰弱／混乱／次技威力アップ）を適用する ---
+// caster: 技を撃った側のユニット, target: 技を受けた側のユニット, sk: 実効技データ（force/hitRate反映済み）
+// 戻り値: 追加効果のログメッセージ配列
+function applySkillOnHitEffect(caster, target, sk) {
+    const logs = [];
+    if (!sk || !sk.effect) return logs;
+
+    if (sk.effect === 'weaken_pow_int') {
+        target.weakenTurns = 3;
+        logs.push(`💢 ${target.name} の「ちから」「かしこさ」が3ターンの間10%低下した！`);
+    } else if (sk.effect === 'confuse_30') {
+        target.confuseTurns = 3;
+        logs.push(`❓ ${target.name} は混乱状態になった！（3回の行動の間、30%の確率で行動に失敗する）`);
+    } else if (sk.effect === 'next_force_up') {
+        caster.forceBoost = 0.5;
+        logs.push(`✨ ${caster.name} の次の技の威力が50%アップした！`);
+    }
+    return logs;
+}
+
+// --- そのユニットの行動ターン開始時に呼び出す：衰弱／混乱の残ターン消化と混乱判定 ---
+// 戻り値: { confused: true/false } - confused=true の場合、そのターンは混乱により行動失敗
+function tickStatusTurnsAndCheckConfusion(unit) {
+    if (!unit) return { confused: false };
+    if (unit.weakenTurns > 0) unit.weakenTurns--;
+    if (unit.confuseTurns > 0) {
+        unit.confuseTurns--;
+        if (Math.random() < 0.30) {
+            return { confused: true };
+        }
+    }
+    return { confused: false };
+}
+
+// --- 衰弱状態を加味した実効ステータス値（ちから／かしこさ）を返す ---
+function getWeakenedStat(unit, statVal) {
+    if (unit && unit.weakenTurns > 0) {
+        return Math.floor(statVal * 0.9);
+    }
+    return statVal;
+}
+
+// --- 次技威力アップ（オーロラゲート等）を加味した実効forceを返し、フラグを消費する ---
+function consumeForceBoost(unit, baseForce) {
+    if (unit && unit.forceBoost > 0) {
+        const boosted = baseForce * (1 + unit.forceBoost);
+        unit.forceBoost = 0;
+        return boosted;
+    }
+    return baseForce;
 }
 
 // --- トレーニングデータベース ---
@@ -302,6 +377,8 @@ const TRAINING_EVENTS = [
                         candidates = ['shippobinta', 'nameru', 'kamitsuki', 'kuu', 'psychokinesis', 'cho_netsushisen', 'utau', 'berobinta'];
                     } else if (player.emoji === '🦖') {
                         candidates = ['shippo', 'kamitsuki_dino', 'sunakake', 'kamitsukinage', 'honoo_taiatari', 'hizageri', 'kurohizacombo'];
+                    } else if (player.emoji === '🗿') {
+                        candidates = ['monotaore', 'warawara', 'sakebigoe', 'cho_monotaore', 'aurora_gate', 'sanren_attack', 'trio_beam_z'];
                     }
 
                     const available = candidates.filter(s => !player.skills.includes(s));

@@ -57,6 +57,9 @@ function convertMasmonToBattleUnit(masmonData) {
         isSokojikaraFired: false,
         isSokojikaraActive: false,
         isShuchuActive: false,
+        weakenTurns: 0,   // わらわら等で受ける「ちから・かしこさ低下」の残ターン
+        confuseTurns: 0,  // サケビ声等で受ける「混乱」の残行動回数
+        forceBoost: 0,    // オーロラゲート等で得る「次の技威力アップ」倍率
         stats: {
             maxLife: masmonData.stats.maxLife,
             life: masmonData.stats.maxLife,
@@ -417,6 +420,24 @@ function startMasmonPlayerTurn(isFirstTurn = false) {
 
     MASMON_BATTLE_STATE.isDefending = false;
     updateMasmonBattleStatsUI();
+
+    // 混乱状態（サケビ声などで付与）の残ターン消化と行動失敗判定
+    const confusionResult = tickStatusTurnsAndCheckConfusion(p);
+    if (confusionResult.confused) {
+        addLog(`❓ ${p.name} は混乱していて、行動できなかった！`);
+        showEffect('❓ 混乱... ❓');
+        MASMON_BATTLE_STATE.isPlayerTurnActive = false;
+        toggleMasmonSkillButtons(false);
+        document.getElementById('end-turn-btn').disabled = true;
+        document.getElementById('end-turn-btn').classList.add('opacity-50', 'pointer-events-none');
+        document.getElementById('end-turn-defend-btn').disabled = true;
+        document.getElementById('end-turn-defend-btn').classList.add('opacity-50', 'pointer-events-none');
+        setTimeout(() => {
+            executeMasmonEnemyTurn();
+        }, 1000);
+        return;
+    }
+
     toggleMasmonSkillButtons(true);
     renderBattleItems();
 }
@@ -793,9 +814,12 @@ function executeMasmonPlayerSkill(skKey) {
             }
             const isHit = isCertain || (Math.random() * 100 < hitChance);
 
+            // 次技威力アップ（オーロラゲート等）の消費は命中判定に関わらず技を撃った時点で消費する
+            const usedForce = consumeForceBoost(p, sk.force);
+
             if (isHit) {
                 const isPow = sk.type === 'pow';
-                const attackerStat = isPow ? p.stats.pow : p.stats.int;
+                const attackerStat = getWeakenedStat(p, isPow ? p.stats.pow : p.stats.int);
                 const defenderStat = e.stats.def;
                 const statCap = Math.max(30, defenderStat * 2.5);
                 let effectiveAttacker = attackerStat;
@@ -804,7 +828,7 @@ function executeMasmonPlayerSkill(skKey) {
                 }
 
                 const defenderGutsDefenseMod = getGutsDefenseModifier(e.guts);
-                let rawDmg = ((effectiveAttacker * sk.force) * mods.dmgMod) - (defenderStat * 0.35);
+                let rawDmg = ((effectiveAttacker * usedForce) * mods.dmgMod) - (defenderStat * 0.35);
                 let damage = Math.floor(Math.max(10, (rawDmg * (0.9 + Math.random() * 0.2)) * defenderGutsDefenseMod));
 
                 let extraDmgMsg = "";
@@ -842,6 +866,9 @@ function executeMasmonPlayerSkill(skKey) {
                     addLog(`さらに！相手のガッツを ${actualGutsDown} 奪い取った！${p.isGyakujoActive ? " (逆上×1.2)" : ""} (現在: ${Math.floor(e.guts)})`);
                     checkMasmonGyakujoTrigger(e);
                 }
+
+                // モノリスの技等が持つ追加効果（衰弱／混乱付与／次技威力アップ）
+                applySkillOnHitEffect(p, e, sk).forEach(msg => addLog(msg));
 
                 p.isSokojikaraActive = false;
                 p.isShuchuActive = false;
@@ -973,6 +1000,21 @@ function executeMasmonEnemyTurn() {
         p = getPlayerActive();
         e = getEnemyActive();
 
+        // 混乱状態（サケビ声などで受けた場合）の残ターン消化と行動失敗判定
+        const enemyConfusionResult = tickStatusTurnsAndCheckConfusion(e);
+        if (enemyConfusionResult.confused) {
+            addLog(`❓ ${e.name} は混乱していて、行動できなかった！`);
+            showEffect('❓ 混乱... ❓');
+            updateMasmonBattleStatsUI();
+            setTimeout(() => {
+                if (checkFaintAndProceed('player')) return;
+                MASMON_BATTLE_STATE.turn++;
+                document.getElementById('battle-turn-counter').textContent = MASMON_BATTLE_STATE.turn;
+                startMasmonPlayerTurn(false);
+            }, 800);
+            return;
+        }
+
         const affordableSkills = e.skills
             .map(skKey => ({ key: skKey, info: SKILLS_DB[skKey] }))
             .filter(skObj => skObj.info && e.guts >= skObj.info.cost);
@@ -999,9 +1041,12 @@ function executeMasmonEnemyTurn() {
                     }
                     const isHit = isCertain || (Math.random() * 100 < hitChance);
 
+                    // 次技威力アップの消費は命中判定に関わらず技を撃った時点で消費する
+                    const enemyUsedForce = consumeForceBoost(e, sk.force);
+
                     if (isHit) {
                         const isPow = sk.type === 'pow';
-                        const attackerStat = isPow ? e.stats.pow : e.stats.int;
+                        const attackerStat = getWeakenedStat(e, isPow ? e.stats.pow : e.stats.int);
                         const defenderStat = p.stats.def;
                         const statCap = Math.max(30, defenderStat * 2.5);
                         let effectiveAttacker = attackerStat;
@@ -1010,7 +1055,7 @@ function executeMasmonEnemyTurn() {
                         }
 
                         const playerGutsDefenseMod = getGutsDefenseModifier(p.guts);
-                        let rawDmg = (effectiveAttacker * sk.force) - (defenderStat * 0.35);
+                        let rawDmg = (effectiveAttacker * enemyUsedForce) - (defenderStat * 0.35);
                         let damage = Math.floor(Math.max(8, (rawDmg * (0.9 + Math.random() * 0.2)) * playerGutsDefenseMod));
 
                         if (e.isSokojikaraActive) {
@@ -1045,6 +1090,8 @@ function executeMasmonEnemyTurn() {
                             addLog(`さらに！ ${p.name} のガッツが ${actualGutsDown} 奪われた！(現在: ${Math.floor(p.guts)})`);
                             checkMasmonGyakujoTrigger(p);
                         }
+
+                        applySkillOnHitEffect(e, p, sk).forEach(msg => addLog(msg));
 
                         e.isSokojikaraActive = false;
                         e.isShuchuActive = false;

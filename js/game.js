@@ -285,13 +285,18 @@ function startGame() {
         startSkills = ['shippobinta', 'nameru', 'kamitsuki'];
     } else if (template.id === 'dino') {
         startSkills = ['shippo', 'kamitsuki_dino', 'sunakake'];
+    } else if (template.id === 'monolith') {
+        startSkills = ['monotaore', 'warawara', 'sakebigoe'];
     }
 
     GAME_STATE.player = {
         name: template.name,
         emoji: template.emoji,
         stats: { ...template.stats },
-        skills: startSkills 
+        skills: startSkills,
+        weakenTurns: 0,   // わらわら等で受ける「ちから・かしこさ低下」の残ターン
+        confuseTurns: 0,  // サケビ声等で受ける「混乱」の残行動回数
+        forceBoost: 0     // オーロラゲート等で得る「次の技威力アップ」倍率
     };
 
     if (GAME_STATE.inheritedSkill && !GAME_STATE.player.skills.includes(GAME_STATE.inheritedSkill)) {
@@ -748,6 +753,7 @@ function setupEvent(isTraining = false) {
         if (p.emoji === '🍪') candidates = ['monta', 'mochiki', 'gaccho', 'sakurafubuki', 'cho_rollinmochi', 'cho_mochihou', 'mossama', 'yaezakura'];
         else if (p.emoji === '👁️') candidates = ['shippobinta', 'nameru', 'kamitsuki', 'kuu', 'psychokinesis', 'cho_netsushisen', 'utau', 'berobinta'];
         else if (p.emoji === '🦖') candidates = ['shippo', 'kamitsuki_dino', 'sunakake', 'kamitsukinage', 'honoo_taiatari', 'hizageri', 'kurohizacombo'];
+        else if (p.emoji === '🗿') candidates = ['monotaore', 'warawara', 'sakebigoe', 'cho_monotaore', 'aurora_gate', 'sanren_attack', 'trio_beam_z'];
         
         const available = candidates.filter(s => !p.skills.includes(s));
         if (available.length === 0) {
@@ -960,6 +966,9 @@ function setupBattle(isBoss = false) {
     GAME_STATE.isSokojikaraFired = false;
     GAME_STATE.isSokojikaraActive = false;
     GAME_STATE.isShuchuActive = false;
+    GAME_STATE.player.weakenTurns = 0;
+    GAME_STATE.player.confuseTurns = 0;
+    GAME_STATE.player.forceBoost = 0;
 
     let enemyTemplate;
     if (isBoss) {
@@ -999,7 +1008,10 @@ function setupBattle(isBoss = false) {
         name: enemyTemplate.name + (GAME_STATE.difficulty === 'hard' ? ' (強敵)' : ''),
         emoji: enemyTemplate.emoji,
         type: enemyTemplate.type,
-        guts: 50, 
+        guts: 50,
+        weakenTurns: 0,
+        confuseTurns: 0,
+        forceBoost: 0,
         stats: {
             maxLife: Math.floor(enemyTemplate.maxLife * hpScale),
             life: Math.floor(enemyTemplate.maxLife * hpScale),
@@ -1085,6 +1097,24 @@ function startPlayerTurn(isFirstTurn = false) {
     GAME_STATE.isDefending = false;
 
     updateBattleStatsUI();
+
+    // 混乱状態（サケビ声などで付与）の残ターン消化と行動失敗判定
+    const confusionResult = tickStatusTurnsAndCheckConfusion(GAME_STATE.player);
+    if (confusionResult.confused) {
+        addLog(`❓ ${GAME_STATE.player.name} は混乱していて、行動できなかった！`);
+        showEffect('❓ 混乱... ❓');
+        GAME_STATE.isPlayerTurnActive = false;
+        toggleSkillButtons(false);
+        document.getElementById('end-turn-btn').disabled = true;
+        document.getElementById('end-turn-btn').classList.add('opacity-50', 'pointer-events-none');
+        document.getElementById('end-turn-defend-btn').disabled = true;
+        document.getElementById('end-turn-defend-btn').classList.add('opacity-50', 'pointer-events-none');
+        setTimeout(() => {
+            executeEnemyTurn();
+        }, 1000);
+        return;
+    }
+
     toggleSkillButtons(true);
 }
 
@@ -1342,9 +1372,13 @@ function executePlayerSkill(skKey) {
 
             const isHit = isCertain || (Math.random() * 100 < hitChance);
 
+            // 次技威力アップ（オーロラゲート等）の消費は命中判定に関わらず技を撃った時点で消費する
+            const usedForce = consumeForceBoost(p, effectiveSk.force);
+
             if (isHit) {
                 const isPow = sk.type === 'pow';
-                const attackerStat = isPow ? p.stats.pow : p.stats.int;
+                // 衰弱状態（わらわら等で受けた場合）を反映したステータスを使用する
+                const attackerStat = getWeakenedStat(p, isPow ? p.stats.pow : p.stats.int);
                 const defenderStat = e.stats.def;
                 
                 const statCap = Math.max(30, defenderStat * 2.5);
@@ -1354,7 +1388,7 @@ function executePlayerSkill(skKey) {
                 }
 
                 const defenderGutsDefenseMod = getGutsDefenseModifier(e.guts);
-                let rawDmg = ((effectiveAttacker * effectiveSk.force) * mods.dmgMod) - (defenderStat * 0.35);
+                let rawDmg = ((effectiveAttacker * usedForce) * mods.dmgMod) - (defenderStat * 0.35);
                 let damage = Math.floor(Math.max(10, (rawDmg * (0.9 + Math.random() * 0.2)) * defenderGutsDefenseMod));
 
                 if (isCertain) {
@@ -1400,7 +1434,10 @@ function executePlayerSkill(skKey) {
                     e.guts = Math.max(0, e.guts - actualGutsDown);
                     addLog(`さらに！相手のガッツを ${actualGutsDown} 奪い取った！${GAME_STATE.isGyakujoActive ? " (逆上×1.2)" : ""} (現在: ${Math.floor(e.guts)})`);
                 }
-                
+
+                // モノリスの技等が持つ追加効果（衰弱／混乱付与／次技威力アップ）
+                applySkillOnHitEffect(p, e, effectiveSk).forEach(msg => addLog(msg));
+
                 showEffect(isCrit ? '💥 CRITICAL!! 💥' : '💥 HIT! 💥');
                 showDamagePopup('enemy-dmg-popup', damage, isCrit);
                 animateSprite('battle-enemy-sprite-container', 'shake');
@@ -1481,7 +1518,25 @@ function executeEnemyTurn() {
     addLog(`${e.name} のガッツが ${enemyRecovery} 回復した！(現在: ${Math.floor(e.guts)})`);
     updateBattleStatsUI();
 
+    // 混乱状態（サケビ声などで受けた場合）の残ターン消化と行動失敗判定
+    const enemyConfusionResult = tickStatusTurnsAndCheckConfusion(e);
+
     setTimeout(() => {
+        if (enemyConfusionResult.confused) {
+            addLog(`❓ ${e.name} は混乱していて、行動できなかった！`);
+            showEffect('❓ 混乱... ❓');
+            setTimeout(() => {
+                if (p.stats.life <= 0) {
+                    handleBattleLose();
+                } else {
+                    GAME_STATE.battleTurn++;
+                    document.getElementById('battle-turn-counter').textContent = GAME_STATE.battleTurn;
+                    startPlayerTurn(false);
+                }
+            }, 800);
+            return;
+        }
+
         const affordableSkills = e.skills.map(skKey => {
             return { key: skKey, info: SKILLS_DB[skKey] || SKILLS_DB.boss_bite };
         }).filter(skObj => e.guts >= skObj.info.cost);
@@ -1506,9 +1561,12 @@ function executeEnemyTurn() {
                     const hitChance = isCertain ? 100 : Math.max(10, Math.min(99, sk.hitRate + (e.stats.hit - p.stats.spd) * 0.5));
                     const isHit = isCertain || (Math.random() * 100 < hitChance);
 
+                    // 次技威力アップの消費は命中判定に関わらず技を撃った時点で消費する
+                    const enemyUsedForce = consumeForceBoost(e, sk.force);
+
                     if (isHit) {
                         const isPow = sk.type === 'pow';
-                        const attackerStat = isPow ? e.stats.pow : e.stats.int;
+                        const attackerStat = getWeakenedStat(e, isPow ? e.stats.pow : e.stats.int);
                         const defenderStat = p.stats.def;
 
                         const statCap = Math.max(30, defenderStat * 2.5);
@@ -1519,7 +1577,7 @@ function executeEnemyTurn() {
 
                         const playerGutsDefenseMod = getGutsDefenseModifier(p.guts);
 
-                        let rawDmg = (effectiveAttacker * sk.force) - (defenderStat * 0.35);
+                        let rawDmg = (effectiveAttacker * enemyUsedForce) - (defenderStat * 0.35);
                         let damage = Math.floor(Math.max(8, (rawDmg * (0.9 + Math.random() * 0.2)) * playerGutsDefenseMod));
 
                         if (isCertain) {
@@ -1567,6 +1625,8 @@ function executeEnemyTurn() {
                                 }
                             }
                         }
+
+                        applySkillOnHitEffect(e, p, sk).forEach(msg => addLog(msg));
 
                         showEffect('⚡ 被弾!! ⚡');
                         showDamagePopup('player-dmg-popup', damage, false);
@@ -1854,11 +1914,13 @@ function endGame(isClear) {
         let template = MONSTER_TEMPLATES.mochi; 
         if (p.emoji === '👁️') template = MONSTER_TEMPLATES.suezo;
         if (p.emoji === '🦖') template = MONSTER_TEMPLATES.dino;
+        if (p.emoji === '🗿') template = MONSTER_TEMPLATES.monolith;
 
         let defaultSkills = [];
         if (template.id === 'mochi') defaultSkills = ['monta', 'mochiki', 'sakurafubuki'];
         if (template.id === 'suezo') defaultSkills = ['shippobinta', 'nameru', 'kamitsuki'];
         if (template.id === 'dino') defaultSkills = ['shippo', 'kamitsuki_dino', 'sunakake'];
+        if (template.id === 'monolith') defaultSkills = ['monotaore', 'warawara', 'sakebigoe'];
 
         const additionalSkills = p.skills.filter(s => !defaultSkills.includes(s));
 
@@ -2004,11 +2066,13 @@ function endGame(isClear) {
         let template = MONSTER_TEMPLATES.mochi; 
         if (p.emoji === '👁️') template = MONSTER_TEMPLATES.suezo;
         if (p.emoji === '🦖') template = MONSTER_TEMPLATES.dino;
+        if (p.emoji === '🗿') template = MONSTER_TEMPLATES.monolith;
 
         let defaultSkills = [];
         if (template.id === 'mochi') defaultSkills = ['monta', 'mochiki', 'sakurafubuki'];
         if (template.id === 'suezo') defaultSkills = ['shippobinta', 'nameru', 'kamitsuki'];
         if (template.id === 'dino') defaultSkills = ['shippo', 'kamitsuki_dino', 'sunakake'];
+        if (template.id === 'monolith') defaultSkills = ['monotaore', 'warawara', 'sakebigoe'];
 
         const additionalSkills = p.skills.filter(s => !defaultSkills.includes(s));
 
@@ -2201,6 +2265,7 @@ function switchMonsterTab(monsterName) {
         'モッチー': { id: 'rank-tab-mochi', active: 'bg-amber-800 border-amber-500 text-amber-200',        inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
         'スエゾー': { id: 'rank-tab-suezo', active: 'bg-cyan-900 border-cyan-500 text-cyan-200',           inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
         'ディノ':   { id: 'rank-tab-dino',  active: 'bg-emerald-900 border-emerald-500 text-emerald-200',  inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
+        'モノリス': { id: 'rank-tab-monolith', active: 'bg-stone-700 border-stone-400 text-stone-200', inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
     };
 
     const baseClass = 'flex-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all flex items-center justify-center ';
@@ -2249,7 +2314,7 @@ async function loadRanking(difficulty, monsterFilter = 'all') {
         const rankIcons = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
 
         // モンスター名→絵文字のフォールバックマップ
-        const monsterEmojiMap = { 'モッチー': '🍪', 'スエゾー': '👁️', 'ディノ': '🦖' };
+        const monsterEmojiMap = { 'モッチー': '🍪', 'スエゾー': '👁️', 'ディノ': '🦖', 'モノリス': '🗿' };
 
         const rows = top10.map(function(entry, i) {
             const rankIcon = rankIcons[i] !== undefined ? rankIcons[i] : ((i + 1) + '位');

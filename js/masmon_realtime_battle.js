@@ -123,6 +123,10 @@ function convertRoomMasmonToRealtimeUnit(masmon) {
         isSokojikaraFired: false,
         isSokojikaraActive: false,
         isShuchuActive: false,
+        weakenTurns: 0,        // わらわら等で受ける「ちから・かしこさ低下」の残ターン
+        confuseTurns: 0,       // サケビ声等で受ける「混乱」の残行動回数
+        forceBoost: 0,         // オーロラゲート等で得る「次の技威力アップ」倍率
+        isConfusedThisTurn: false, // このターンの行動が混乱によって失敗するか（ターン開始時に決定）
         skills: [...(masmon.skills || [])],
         skillEnhancements: JSON.parse(JSON.stringify(masmon.skillEnhancements || {}))
     };
@@ -199,6 +203,8 @@ function attachRealtimeBattleListeners() {
         const entry = snap.val();
         if (entry && entry.text) {
             addLog(entry.text);
+            // HIT/回避/クリティカルなど、育成中のバトルと同じ演出をログ内容から再現する
+            triggerRealtimeCombatEffects(entry);
             // 根性の発動は状態を持続保存しないため、ログのタイミングで一時演出を出す（育成中のバトルと同じ表現）
             if (entry.text.includes('根性が発動') && REALTIME_BATTLE.cachedState) {
                 const meNow = getRealtimeActiveUnit(REALTIME_BATTLE.cachedState, REALTIME_BATTLE.mySlot);
@@ -338,6 +344,90 @@ function updateRealtimeStatusEffectUI(state) {
         if (!el.dataset.temporaryActive) {
             el.classList.add('hidden');
         }
+    }
+}
+
+// -----------------------------------------------------
+// 対戦相手にも「HIT」「回避」等の演出が伝わるよう、ログのテキストから
+// 育成中のバトルと同じ演出（showEffect / showDamagePopup / animateSprite）を再現する。
+// リアルタイム対戦では行動結果がログ文字列としてのみ同期されるため、
+// 文字列パターンから何が起きたかを判定し、双方のクライアントで同じ演出を出す。
+// -----------------------------------------------------
+function triggerRealtimeCombatEffects(entry) {
+    if (!REALTIME_BATTLE.active || !entry || !entry.text) return;
+    const text = entry.text;
+    const isMyAction = entry.actor === REALTIME_BATTLE.mySlot;
+
+    const defenderIcon = isMyAction ? 'battle-enemy-sprite-container' : 'battle-player-sprite-container';
+    const defenderPopup = isMyAction ? 'enemy-dmg-popup' : 'player-dmg-popup';
+
+    // ダメージ命中（通常／クリティカル）
+    const dmgMatch = text.match(/に\s*(\d+)\s*ダメージ！$/);
+    if (dmgMatch) {
+        const isCrit = text.includes('クリティカル');
+        showEffect(isCrit ? '💥 CRITICAL!! 💥' : (isMyAction ? '💥 HIT! 💥' : '⚡ 被弾!! ⚡'));
+        showDamagePopup(defenderPopup, dmgMatch[1], isCrit);
+        animateSprite(defenderIcon, 'shake');
+        return;
+    }
+
+    // 回避（MISS）
+    if (text.includes('しかし攻撃はかわされた')) {
+        showEffect(isMyAction ? '💨 MISS 💨' : '💨 回避!! 💨');
+        showDamagePopup(defenderPopup, 'MISS', false);
+        return;
+    }
+
+    // 防御コマンド
+    if (text.includes('防御の構えを取った')) {
+        showEffect('🛡️ DEFENSE 🛡️');
+        return;
+    }
+
+    // 混乱により行動失敗
+    if (text.includes('混乱していて、行動できなかった')) {
+        showEffect('❓ 混乱... ❓');
+        return;
+    }
+    // 混乱付与
+    if (text.includes('は混乱状態になった')) {
+        showEffect('❓ 混乱付与! ❓');
+        return;
+    }
+    // 衰弱付与（ちから・かしこさ低下）
+    if (text.includes('が3ターンの間10%低下した')) {
+        showEffect('💢 衰弱... 💢');
+        return;
+    }
+    // 次技威力アップ
+    if (text.includes('次の技の威力が50%アップした')) {
+        showEffect('✨ 威力UP! ✨');
+        return;
+    }
+
+    // アイテム・技によるライフ回復
+    if (/ライフが\s*\d+\s*回復した！$/.test(text)) {
+        showEffect(isMyAction ? '🥭 回復! 🥭' : '💚 相手回復! 💚');
+        return;
+    }
+    if (/ライフが\s*\d+\s*回復！$/.test(text)) {
+        showEffect(isMyAction ? '💚 ライフ回復! 💚' : '💚 相手回復! 💚');
+        return;
+    }
+    // クリティカル率上昇アイテム
+    if (text.includes('クリティカル率が上昇する')) {
+        showEffect('🌰 会心UP! 🌰');
+        return;
+    }
+    // ちから・かしこさ上昇アイテム
+    if (text.includes('ちから・かしこさが上昇')) {
+        showEffect(isMyAction ? '🧪 パワーUP! 🧪' : '💪 相手の攻撃UP! 💪');
+        return;
+    }
+    // ちからUP技
+    if (text.includes('闘志がみなぎる') && text.includes('アップした')) {
+        showEffect(isMyAction ? '💪 ちからUP! 💪' : '💪 相手の攻撃UP! 💪');
+        return;
     }
 }
 
@@ -618,7 +708,11 @@ async function performRealtimeAction(action) {
             const opp = oppTeam.units[oppTeam.activeIdx];
             const myItems = current.items[mySlot];
 
-            if (action.kind === 'skill') {
+            // 混乱状態（サケビ声などで受けた場合）：このターンは何を選んでも行動に失敗する
+            if (me.isConfusedThisTurn) {
+                me.isConfusedThisTurn = false;
+                resultLogs.push(`❓ ${me.name} は混乱していて、行動できなかった！`);
+            } else if (action.kind === 'skill') {
                 const rawSk = SKILLS_DB[action.key];
                 if (!rawSk || !me.skills.includes(action.key) || me.guts < rawSk.cost) return; // abort：無効な行動
                 const sk = getRealtimeEffectiveSkill(me, action.key);
@@ -634,14 +728,17 @@ async function performRealtimeAction(action) {
                     }
                     const isHit = isCertain || (Math.random() * 100 < hitChance);
 
+                    // 次技威力アップ（オーロラゲート等）の消費は命中判定に関わらず技を撃った時点で消費する
+                    const usedForce = consumeForceBoost(me, sk.force);
+
                     if (isHit) {
                         const isPow = sk.type === 'pow';
-                        const attackerStat = isPow ? me.pow : me.int;
+                        const attackerStat = getWeakenedStat(me, isPow ? me.pow : me.int);
                         const defenderStat = opp.def;
                         const statCap = Math.max(30, defenderStat * 2.5);
                         const effectiveAttacker = attackerStat > statCap ? statCap + (attackerStat - statCap) * 0.2 : attackerStat;
                         const defenderGutsDefenseMod = getGutsDefenseModifier(opp.guts);
-                        const rawDmg = (effectiveAttacker * sk.force * mods.dmgMod) - (defenderStat * 0.35);
+                        const rawDmg = (effectiveAttacker * usedForce * mods.dmgMod) - (defenderStat * 0.35);
                         let damage = Math.floor(Math.max(10, (rawDmg * (0.9 + Math.random() * 0.2)) * defenderGutsDefenseMod));
 
                         if (me.isSokojikaraActive) {
@@ -696,6 +793,9 @@ async function performRealtimeAction(action) {
                                 }
                             }
                         }
+
+                        // モノリスの技等が持つ追加効果（衰弱／混乱付与／次技威力アップ）
+                        applySkillOnHitEffect(me, opp, sk).forEach(msg => resultLogs.push(msg));
 
                         me.isSokojikaraActive = false;
                         me.isShuchuActive = false;
@@ -776,6 +876,14 @@ async function performRealtimeAction(action) {
                 const oppNowActive = oppTeam.units[oppTeam.activeIdx];
                 if (oppNowActive.critBonusTurns > 0) oppNowActive.critBonusTurns--;
                 oppNowActive.isDefending = false;
+                // 衰弱・混乱の残ターン消化（混乱は次に行動を試みた時点で判定に使うフラグとして保存する）
+                if (oppNowActive.weakenTurns > 0) oppNowActive.weakenTurns--;
+                if (oppNowActive.confuseTurns > 0) {
+                    oppNowActive.confuseTurns--;
+                    oppNowActive.isConfusedThisTurn = Math.random() < 0.30;
+                } else {
+                    oppNowActive.isConfusedThisTurn = false;
+                }
                 let recovery = Math.floor((oppNowActive.gutsSpeed || 14) + 30);
                 if (oppNowActive.isGyakujoActive) {
                     recovery = Math.floor(recovery * 1.2);
