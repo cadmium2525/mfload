@@ -140,7 +140,10 @@ async function startRealtimeMatching() {
             emoji: m.emoji,
             monsterBaseName: m.monsterBaseName,
             stats: m.stats,
-            skills: m.skills
+            skills: m.skills,
+            skillEnhancements: m.skillEnhancements || {},
+            statusEffect: m.statusEffect || null,
+            isAwakened: !!m.isAwakened
         })),
         items: buildItemCounts(realtimePendingItems),
         lastSeen: Date.now()
