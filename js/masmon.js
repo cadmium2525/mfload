@@ -219,7 +219,9 @@ async function renderMasmonList() {
     container.innerHTML = '';
     list.forEach(m => {
         const card = document.createElement('div');
-        card.className = 'bg-[#2a1b15] border border-purple-900/50 rounded-xl p-2.5 flex items-center space-x-2';
+        card.className = 'bg-[#2a1b15] border border-purple-900/50 rounded-xl p-2.5 flex items-center space-x-2 cursor-pointer active:scale-[0.98] transition-all';
+        // マスモンをタップするとそのモンスターの情報を表示する
+        card.onclick = () => openMasmonDetailModal(m);
 
         const iconWrap = document.createElement('div');
         iconWrap.className = 'w-10 h-10 flex items-center justify-center text-2xl flex-shrink-0 bg-[#1a120b] rounded-full border border-purple-900/40';
@@ -238,7 +240,10 @@ async function renderMasmonList() {
         const delBtn = document.createElement('button');
         delBtn.className = 'flex-shrink-0 text-[10px] bg-red-950 hover:bg-red-900 border border-red-800 text-red-300 px-2 py-1 rounded-lg transition-all active:scale-95';
         delBtn.textContent = '削除';
-        delBtn.onclick = () => deleteMasmon(m.key);
+        delBtn.onclick = (ev) => {
+            ev.stopPropagation(); // カードタップ（情報表示）と競合しないようにする
+            deleteMasmon(m.key);
+        };
 
         const btnGroup = document.createElement('div');
         btnGroup.className = 'flex-shrink-0 flex flex-col space-y-1';
@@ -246,7 +251,10 @@ async function renderMasmonList() {
         const battleBtn = document.createElement('button');
         battleBtn.className = 'text-[10px] bg-purple-800 hover:bg-purple-700 border border-purple-600 text-white px-2 py-1 rounded-lg transition-all active:scale-95 font-bold';
         battleBtn.textContent = '⚔️ 対戦';
-        battleBtn.onclick = () => openItemSelectForSolo(m);
+        battleBtn.onclick = (ev) => {
+            ev.stopPropagation(); // カードタップ（情報表示）と競合しないようにする
+            openItemSelectForSolo(m);
+        };
 
         btnGroup.appendChild(battleBtn);
         btnGroup.appendChild(delBtn);
@@ -269,4 +277,64 @@ async function deleteMasmon(key) {
         console.error('[Firebase] マスモン削除エラー:', e);
         showToast('削除に失敗しました。');
     }
+}
+
+// -----------------------------------------------------
+// マスモン情報詳細モーダル（マイマスモンのマスモンをタップすると表示）
+// -----------------------------------------------------
+function openMasmonDetailModal(m) {
+    const iconWrap = document.getElementById('masmon-detail-icon');
+    iconWrap.innerHTML = '';
+    renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened);
+
+    document.getElementById('masmon-detail-name').textContent = m.name;
+    document.getElementById('masmon-detail-base').textContent = `（${m.monsterBaseName}）`;
+    document.getElementById('masmon-detail-owner').textContent = `オーナー: ${m.ownerName || '-'}`;
+
+    document.getElementById('masmon-detail-hp').textContent = m.stats.maxLife;
+    document.getElementById('masmon-detail-pow').textContent = m.stats.pow;
+    document.getElementById('masmon-detail-int').textContent = m.stats.int;
+    document.getElementById('masmon-detail-hit').textContent = m.stats.hit;
+    document.getElementById('masmon-detail-spd').textContent = m.stats.spd;
+    document.getElementById('masmon-detail-def').textContent = m.stats.def;
+
+    document.getElementById('masmon-detail-status-effect').textContent = m.statusEffect || 'なし';
+    document.getElementById('masmon-detail-awakened').textContent = m.isAwakened ? '覚醒済み ✨' : '未覚醒';
+
+    document.getElementById('masmon-detail-difficulty').textContent = m.difficulty === 'hard' ? 'HARD' : 'NORMAL';
+    document.getElementById('masmon-detail-floor').textContent = `${m.floor}F到達`;
+
+    const skillsContainer = document.getElementById('masmon-detail-skills');
+    skillsContainer.innerHTML = '';
+    (m.skills || []).forEach(skKey => {
+        const sk = SKILLS_DB[skKey];
+        if (!sk) return;
+        const enh = (m.skillEnhancements && m.skillEnhancements[skKey]) || { forceBonus: 0, hitBonus: 0, level: 0 };
+        const isEnhanced = enh.level > 0;
+        const effForce = sk.force + (enh.forceBonus || 0);
+        const effHitRate = sk.hitRate === 100 ? 100 : Math.min(99, sk.hitRate + (enh.hitBonus || 0));
+        const rank = getDamageRank(effForce, sk.type);
+
+        const row = document.createElement('div');
+        row.className = `text-[10px] p-1.5 rounded border flex justify-between items-center ${isEnhanced ? 'bg-[#1e0f3a] border-purple-400' : 'bg-[#150b07] border-purple-950'}`;
+        const enhBadge = isEnhanced
+            ? `<span class="text-[8px] bg-purple-900 text-purple-200 px-1 py-0.5 rounded font-bold ml-1">⚔️Lv.${enh.level}</span>`
+            : '';
+        const hitText = sk.hitRate === 100 ? '必中' : `命中:${effHitRate}%`;
+        row.innerHTML = `
+            <span class="text-gray-200 font-bold">${sk.name}${enhBadge}</span>
+            <span class="text-gray-400 flex items-center space-x-1.5">
+                <span>ランク:${rank}</span>
+                <span>${hitText}</span>
+                <span>G:${sk.cost}</span>
+            </span>
+        `;
+        skillsContainer.appendChild(row);
+    });
+
+    document.getElementById('masmon-detail-modal').classList.remove('hidden');
+}
+
+function closeMasmonDetailModal() {
+    document.getElementById('masmon-detail-modal').classList.add('hidden');
 }

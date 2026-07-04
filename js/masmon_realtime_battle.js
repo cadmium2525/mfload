@@ -197,7 +197,16 @@ function attachRealtimeBattleListeners() {
         if (REALTIME_BATTLE.seenLogKeys[snap.key]) return;
         REALTIME_BATTLE.seenLogKeys[snap.key] = true;
         const entry = snap.val();
-        if (entry && entry.text) addLog(entry.text);
+        if (entry && entry.text) {
+            addLog(entry.text);
+            // 根性の発動は状態を持続保存しないため、ログのタイミングで一時演出を出す（育成中のバトルと同じ表現）
+            if (entry.text.includes('根性が発動') && REALTIME_BATTLE.cachedState) {
+                const meNow = getRealtimeActiveUnit(REALTIME_BATTLE.cachedState, REALTIME_BATTLE.mySlot);
+                if (meNow && entry.text.includes(meNow.name)) {
+                    triggerRealtimeTemporaryStatusEffect("根性");
+                }
+            }
+        }
     });
 
     // 相手の生存監視（切断検知用）
@@ -292,11 +301,57 @@ function renderRealtimeBattleUI(state) {
 
     renderRealtimeBattleSkills(state);
     renderRealtimeBattleItems(state);
+    updateRealtimeStatusEffectUI(state);
 
     // 相手のターンが続いている間だけ切断バナーの判定対象にする
     if (isMyTurn || state.status !== 'active') {
         document.getElementById('realtime-disconnect-banner').classList.add('hidden');
     }
+}
+
+// -----------------------------------------------------
+// 状態変化表示UI（育成中のバトルと同じ見た目・仕様で表示する）
+// -----------------------------------------------------
+function updateRealtimeStatusEffectUI(state) {
+    const el = document.getElementById('player-status-effect-display');
+    if (!el) return;
+
+    const me = getRealtimeActiveUnit(state, REALTIME_BATTLE.mySlot);
+    const opp = getRealtimeActiveUnit(state, REALTIME_BATTLE.oppSlot);
+    if (!me) return;
+
+    let showText = "";
+    if (me.isGyakujoActive) {
+        showText = "逆上";
+    } else if (me.isSokojikaraActive) {
+        showText = "底力";
+    } else if (me.statusEffect === "闘魂" && opp && opp.guts > 70) {
+        showText = "闘魂";
+    } else if (me.isShuchuActive) {
+        showText = "集中";
+    }
+
+    if (showText) {
+        el.textContent = showText;
+        el.classList.remove('hidden');
+    } else {
+        if (!el.dataset.temporaryActive) {
+            el.classList.add('hidden');
+        }
+    }
+}
+
+// 根性などの一時的な状態変化の点滅表示（育成中のバトルと同じ演出）
+function triggerRealtimeTemporaryStatusEffect(effectName) {
+    const el = document.getElementById('player-status-effect-display');
+    if (!el) return;
+    el.textContent = effectName;
+    el.classList.remove('hidden');
+    el.dataset.temporaryActive = "true";
+    setTimeout(() => {
+        delete el.dataset.temporaryActive;
+        if (REALTIME_BATTLE.cachedState) updateRealtimeStatusEffectUI(REALTIME_BATTLE.cachedState);
+    }, 2500);
 }
 
 // -----------------------------------------------------
@@ -363,14 +418,45 @@ function renderRealtimeBattleSkills(state) {
         else if (rank === 'F') rankColor = 'text-purple-500';
 
         const canUse = isMyTurn && gutsVal >= sk.cost;
+
+        // 技強化状態の判定（マスモン登録時に保存された強化データを反映。育成中のバトルと同じ表記にする）
+        const enh = me.skillEnhancements && me.skillEnhancements[skKey];
+        const isEnhanced = enh && enh.level > 0;
+        const enhBorderClass = isEnhanced ? 'border-purple-400 shadow-[0_0_6px_2px_rgba(168,85,247,0.4)]' : style.borderClass;
+        const enhBgClass = isEnhanced ? 'bg-[#1e0f3a] hover:bg-[#2a1558]' : style.bgClass;
+
         const btn = document.createElement('button');
-        btn.className = `text-left p-2 rounded border transition-all active:scale-95 flex flex-col justify-between ${style.bgClass} ${style.borderClass} ${style.textClass} ${canUse ? '' : 'opacity-40 pointer-events-none'}`;
+        btn.className = `text-left p-2 rounded border transition-all active:scale-95 flex flex-col justify-between ${enhBgClass} ${enhBorderClass} ${style.textClass} ${canUse ? '' : 'opacity-40 pointer-events-none'}`;
         btn.onclick = () => executeRealtimeSkill(skKey);
+
+        // 技の長押し／右クリックで詳細モーダルを表示（育成中のバトルと同じ操作）
+        let longPressTimer;
+        btn.ontouchstart = () => {
+            longPressTimer = setTimeout(() => {
+                openRealtimeSkillModal(skKey, state);
+            }, 500);
+        };
+        btn.ontouchend = () => clearTimeout(longPressTimer);
+        btn.onmousedown = (ev) => {
+            if (ev.button === 2) {
+                openRealtimeSkillModal(skKey, state);
+            } else {
+                longPressTimer = setTimeout(() => {
+                    openRealtimeSkillModal(skKey, state);
+                }, 500);
+            }
+        };
+        btn.onmouseup = () => clearTimeout(longPressTimer);
+        btn.oncontextmenu = (ev) => ev.preventDefault();
 
         let typeIcon = '💥';
         if (sk.type === 'int') typeIcon = '🔮';
         if (sk.type.startsWith('buff')) typeIcon = '⭐';
         if (sk.type === 'heal') typeIcon = '💖';
+
+        const enhBadge = isEnhanced
+            ? `<span class="text-[8px] bg-purple-900 text-purple-200 px-1 py-0.5 rounded font-bold ml-1">⚔️Lv.${enh.level}</span>`
+            : '';
 
         const hitRateDisplay = (sk.type === 'heal' || sk.type.startsWith('buff'))
             ? `<span class="text-emerald-700 text-[9px] font-bold">必中</span>`
@@ -378,7 +464,7 @@ function renderRealtimeBattleSkills(state) {
 
         btn.innerHTML = `
             <div class="flex justify-between items-center w-full">
-                <span class="font-bold text-xs">${sk.name} ${typeIcon} <span class="ml-1 text-[10px] ${rankColor} bg-[#1a120b]/10 px-1 py-0.2 rounded">ランク:${rank}</span></span>
+                <span class="font-bold text-xs">${sk.name} ${typeIcon}${enhBadge} <span class="ml-1 text-[10px] ${rankColor} bg-[#1a120b]/10 px-1 py-0.2 rounded">ランク:${rank}</span></span>
                 <span class="text-[9px] font-bold">G:${sk.cost}</span>
             </div>
             <div class="flex justify-between items-center mt-0.5 w-full">
@@ -403,6 +489,54 @@ function renderRealtimeBattleSkills(state) {
         </div>
     `;
     container.appendChild(defendBtn);
+}
+
+// -----------------------------------------------------
+// 技詳細モーダル（リアルタイム対戦用：育成中のバトルと同じ見た目のモーダルを、
+// 現在のユニット／強化データに合わせて表示する）
+// -----------------------------------------------------
+function openRealtimeSkillModal(skKey, state) {
+    const me = getRealtimeActiveUnit(state, REALTIME_BATTLE.mySlot);
+    const opp = getRealtimeActiveUnit(state, REALTIME_BATTLE.oppSlot);
+    if (!me) return;
+    const sk = getRealtimeEffectiveSkill(me, skKey);
+    if (!sk) return;
+
+    const currentGuts = Math.floor(me.guts);
+    const mods = getGutsModifiers(currentGuts);
+
+    document.getElementById('modal-skill-name').textContent = sk.name;
+    document.getElementById('modal-skill-cost').textContent = sk.cost;
+    document.getElementById('modal-skill-rank').textContent = getDamageRank(sk.force, sk.type);
+    document.getElementById('modal-skill-gutsdown').textContent = sk.gutsDown || 0;
+    document.getElementById('modal-skill-desc').textContent = sk.desc || "説明はありません。";
+    document.getElementById('modal-current-guts').textContent = currentGuts;
+
+    if (sk.type === 'heal' || sk.type.startsWith('buff')) {
+        document.getElementById('modal-guts-dmg-scale').textContent = "なし (補助)";
+        document.getElementById('modal-guts-hit-rate').textContent = "必中";
+    } else {
+        document.getElementById('modal-guts-dmg-scale').textContent = mods.dmgMod.toFixed(2) + "倍";
+
+        if (sk.hitRate === 100) {
+            document.getElementById('modal-guts-hit-rate').textContent = "必中 🎯";
+        } else if (opp) {
+            let actualHit = Math.max(10, Math.min(99, (sk.hitRate + mods.hitMod) + (me.hit - opp.spd) * 0.5));
+            if (me.isShuchuActive) actualHit = Math.min(99, actualHit * 1.5);
+            document.getElementById('modal-guts-hit-rate').textContent = Math.round(actualHit) + "%";
+        } else {
+            const actualHit = Math.max(10, Math.min(99, sk.hitRate + mods.hitMod));
+            document.getElementById('modal-guts-hit-rate').textContent = Math.round(actualHit) + "%";
+        }
+    }
+
+    let typeStr = "ちから技";
+    if (sk.type === 'int') typeStr = "かしこさ技";
+    if (sk.type === 'heal') typeStr = "回復技";
+    if (sk.type.startsWith('buff')) typeStr = "補助技";
+    document.getElementById('modal-skill-type').textContent = typeStr;
+
+    document.getElementById('skill-modal').classList.remove('hidden');
 }
 
 function renderRealtimeBattleItems(state) {

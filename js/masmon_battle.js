@@ -449,10 +449,12 @@ function checkAndActivateShuchu(unit) {
 
 // --- ダメージを受けた側の「根性」「底力」発動判定 ---
 function checkMasmonDefenseStatusTriggers(defender) {
+    const isPlayerSide = defender === getPlayerActive();
     if (defender.stats.life === 0 && defender.statusEffect === "根性") {
         if (Math.random() < 0.50) {
             defender.stats.life = 1;
             addLog(`✨ 根性が発動！ ${defender.name} は力尽きず、ライフ 1 で耐え抜いた！`);
+            if (isPlayerSide) triggerMasmonTemporaryStatusEffect("根性");
         }
     }
     if (defender.statusEffect === "底力" && !defender.isSokojikaraFired) {
@@ -460,6 +462,7 @@ function checkMasmonDefenseStatusTriggers(defender) {
             defender.isSokojikaraFired = true;
             defender.isSokojikaraActive = true;
             addLog(`💪 底力が発動！窮地に陥ったことで、次の技のダメージが 1.5 倍に上昇！`);
+            if (isPlayerSide) updateMasmonStatusEffectUI();
         }
     }
 }
@@ -470,8 +473,54 @@ function checkMasmonGyakujoTrigger(defender) {
         if (Math.random() < 0.65) {
             defender.isGyakujoActive = true;
             addLog(`💢 逆上が発動！ ${defender.name} の怒りが頂点に達し、ガッツ回復速度と与えるガッツダウン量が 1.2 倍に上昇！`);
+            if (defender === getPlayerActive()) updateMasmonStatusEffectUI();
         }
     }
+}
+
+// -----------------------------------------------------
+// 状態変化表示UI（育成中のバトルと同じ見た目・仕様で表示する）
+// -----------------------------------------------------
+function updateMasmonStatusEffectUI() {
+    const el = document.getElementById('player-status-effect-display');
+    if (!el) return;
+
+    const p = getPlayerActive();
+    const e = getEnemyActive();
+    if (!p) return;
+
+    let showText = "";
+    if (p.isGyakujoActive) {
+        showText = "逆上";
+    } else if (p.isSokojikaraActive) {
+        showText = "底力";
+    } else if (p.statusEffect === "闘魂" && e && e.guts > 70) {
+        showText = "闘魂";
+    } else if (p.isShuchuActive) {
+        showText = "集中";
+    }
+
+    if (showText) {
+        el.textContent = showText;
+        el.classList.remove('hidden');
+    } else {
+        if (!el.dataset.temporaryActive) {
+            el.classList.add('hidden');
+        }
+    }
+}
+
+// 根性などの一時的な状態変化の点滅表示（育成中のバトルと同じ演出）
+function triggerMasmonTemporaryStatusEffect(effectName) {
+    const el = document.getElementById('player-status-effect-display');
+    if (!el) return;
+    el.textContent = effectName;
+    el.classList.remove('hidden');
+    el.dataset.temporaryActive = "true";
+    setTimeout(() => {
+        delete el.dataset.temporaryActive;
+        updateMasmonStatusEffectUI();
+    }, 2500);
 }
 
 function updateMasmonBattleStatsUI() {
@@ -521,8 +570,7 @@ function updateMasmonBattleStatsUI() {
     const recoveryVal = Math.floor((p.stats.gutsSpeed || 14) + 30);
     document.getElementById('turn-guts-notice').textContent = `💡 あなたのガッツ回復力: +${recoveryVal} / ターン`;
 
-    const statusEl = document.getElementById('player-status-effect-display');
-    if (statusEl) statusEl.classList.add('hidden');
+    updateMasmonStatusEffectUI();
 
     renderTeamIcons();
 }
@@ -549,13 +597,43 @@ function renderMasmonBattleSkills() {
         else if (rank === 'E') rankColor = 'text-blue-500';
         else if (rank === 'F') rankColor = 'text-purple-500';
 
-        btn.className = `text-left p-2 rounded border transition-all active:scale-95 flex flex-col justify-between ${style.bgClass} ${style.borderClass} ${style.textClass}`;
+        // 技強化状態の判定（マスモン登録時に保存された強化データを反映。育成中のバトルと同じ表記にする）
+        const enh = p.skillEnhancements && p.skillEnhancements[skKey];
+        const isEnhanced = enh && enh.level > 0;
+        const enhBorderClass = isEnhanced ? 'border-purple-400 shadow-[0_0_6px_2px_rgba(168,85,247,0.4)]' : style.borderClass;
+        const enhBgClass = isEnhanced ? 'bg-[#1e0f3a] hover:bg-[#2a1558]' : style.bgClass;
+
+        btn.className = `text-left p-2 rounded border transition-all active:scale-95 flex flex-col justify-between ${enhBgClass} ${enhBorderClass} ${style.textClass}`;
         btn.onclick = () => executeMasmonPlayerSkill(skKey);
+
+        // 技の長押し／右クリックで詳細モーダルを表示（育成中のバトルと同じ操作）
+        let longPressTimer;
+        btn.ontouchstart = () => {
+            longPressTimer = setTimeout(() => {
+                openMasmonSkillModal(skKey);
+            }, 500);
+        };
+        btn.ontouchend = () => clearTimeout(longPressTimer);
+        btn.onmousedown = (ev) => {
+            if (ev.button === 2) {
+                openMasmonSkillModal(skKey);
+            } else {
+                longPressTimer = setTimeout(() => {
+                    openMasmonSkillModal(skKey);
+                }, 500);
+            }
+        };
+        btn.onmouseup = () => clearTimeout(longPressTimer);
+        btn.oncontextmenu = (ev) => ev.preventDefault();
 
         let typeIcon = '💥';
         if (sk.type === 'int') typeIcon = '🔮';
         if (sk.type.startsWith('buff')) typeIcon = '⭐';
         if (sk.type === 'heal') typeIcon = '💖';
+
+        const enhBadge = isEnhanced
+            ? `<span class="text-[8px] bg-purple-900 text-purple-200 px-1 py-0.5 rounded font-bold ml-1">⚔️Lv.${enh.level}</span>`
+            : '';
 
         const hitRateDisplay = (sk.type === 'heal' || sk.type.startsWith('buff'))
             ? `<span class="text-emerald-700 text-[9px] font-bold">必中</span>`
@@ -563,7 +641,7 @@ function renderMasmonBattleSkills() {
 
         btn.innerHTML = `
             <div class="flex justify-between items-center w-full">
-                <span class="font-bold text-xs">${sk.name} ${typeIcon} <span class="ml-1 text-[10px] ${rankColor} bg-[#1a120b]/10 px-1 py-0.2 rounded">ランク:${rank}</span></span>
+                <span class="font-bold text-xs">${sk.name} ${typeIcon}${enhBadge} <span class="ml-1 text-[10px] ${rankColor} bg-[#1a120b]/10 px-1 py-0.2 rounded">ランク:${rank}</span></span>
                 <span class="text-[9px] font-bold">G:${sk.cost}</span>
             </div>
             <div class="flex justify-between items-center mt-0.5 w-full">
@@ -573,6 +651,54 @@ function renderMasmonBattleSkills() {
         `;
         container.appendChild(btn);
     });
+}
+
+// -----------------------------------------------------
+// 技詳細モーダル（マスモンバトル用：育成中のバトルと同じ見た目のモーダルを、
+// マスモンバトルの現在のユニット／強化データに合わせて表示する）
+// -----------------------------------------------------
+function openMasmonSkillModal(skKey) {
+    const p = getPlayerActive();
+    const e = getEnemyActive();
+    if (!p) return;
+    const sk = getMasmonEffectiveSkill(p, skKey);
+    if (!sk) return;
+
+    const currentGuts = Math.floor(p.guts);
+    const mods = getGutsModifiers(currentGuts);
+
+    document.getElementById('modal-skill-name').textContent = sk.name;
+    document.getElementById('modal-skill-cost').textContent = sk.cost;
+    document.getElementById('modal-skill-rank').textContent = getDamageRank(sk.force, sk.type);
+    document.getElementById('modal-skill-gutsdown').textContent = sk.gutsDown || 0;
+    document.getElementById('modal-skill-desc').textContent = sk.desc || "説明はありません。";
+    document.getElementById('modal-current-guts').textContent = currentGuts;
+
+    if (sk.type === 'heal' || sk.type.startsWith('buff')) {
+        document.getElementById('modal-guts-dmg-scale').textContent = "なし (補助)";
+        document.getElementById('modal-guts-hit-rate').textContent = "必中";
+    } else {
+        document.getElementById('modal-guts-dmg-scale').textContent = mods.dmgMod.toFixed(2) + "倍";
+
+        if (sk.hitRate === 100) {
+            document.getElementById('modal-guts-hit-rate').textContent = "必中 🎯";
+        } else if (e) {
+            let actualHit = Math.max(10, Math.min(99, (sk.hitRate + mods.hitMod) + (p.stats.hit - e.stats.spd) * 0.5));
+            if (p.isShuchuActive) actualHit = Math.min(99, actualHit * 1.5);
+            document.getElementById('modal-guts-hit-rate').textContent = Math.round(actualHit) + "%";
+        } else {
+            const actualHit = Math.max(10, Math.min(99, sk.hitRate + mods.hitMod));
+            document.getElementById('modal-guts-hit-rate').textContent = Math.round(actualHit) + "%";
+        }
+    }
+
+    let typeStr = "ちから技";
+    if (sk.type === 'int') typeStr = "かしこさ技";
+    if (sk.type === 'heal') typeStr = "回復技";
+    if (sk.type.startsWith('buff')) typeStr = "補助技";
+    document.getElementById('modal-skill-type').textContent = typeStr;
+
+    document.getElementById('skill-modal').classList.remove('hidden');
 }
 
 // -----------------------------------------------------
