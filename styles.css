@@ -1,0 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=M+PLUS+Rounded+1c:wght@400;700&display=swap');
+
+html {
+    height: 100%;
+    /* iOS/Android のアドレスバー等によるビューポート変動に対応 */
+    height: -webkit-fill-available;
+}
+body {
+    font-family: 'M PLUS Rounded 1c', sans-serif;
+    background-color: #120b07;
+    color: #f5f2eb;
+    user-select: none;
+    -webkit-user-select: none;
+    height: 100vh; /* フォールバック */
+    height: 100dvh; /* 動的ビューポート高さ：スマホのツールバー分を正しく除外 */
+    height: -webkit-fill-available;
+    min-height: 0;
+}
+.pixel-font {
+    font-family: 'DotGothic16', sans-serif;
+}
+/* スムーズな画面遷移用 */
+.screen {
+    display: none;
+}
+.screen.active {
+    display: flex;
+}
+/* 各画面は親(flex-1)から高さを受け取り、内部スクロールで見切れを防止 */
+/* h-fullクラスとの競合を避けるため明示的に上書き */
+#game-container > div.flex-1 > .screen.h-full {
+    height: auto !important;
+    min-height: 100%;
+    max-height: none;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-bottom: 1.5rem;
+    /* justify-betweenだとスクロール時に要素間が間延びするため通常フローに変更 */
+    justify-content: flex-start !important;
+}
+/* カスタムスクロールバー */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #1a120b;
+}
+::-webkit-scrollbar-thumb {
+    background: #85583f;
+    border-radius: 3px;
+}
+
+/* 状態変化のスムーズな点滅アニメーション */
+@keyframes smoothBlink {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 1; }
+}
+.animate-status-blink {
+    animation: smoothBlink 1.4s infinite ease-in-out;
+}
