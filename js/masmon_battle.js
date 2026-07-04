@@ -7,6 +7,10 @@
 // screen-battle の攻撃終了/防御して終了ボタンはこのフラグを見て処理を振り分ける
 let ACTIVE_BATTLE_MODE = 'adventure';
 
+// マイマスモンを使用してのバトル（CPU対戦・リアルタイム対戦共通）は
+// 通常の育成バトルよりダメージを大幅に抑える（通常の1/5）
+const MASMON_BATTLE_DAMAGE_MULTIPLIER = 1 / 5;
+
 // --- 対戦アイテムデータベース ---
 const MASMON_ITEM_DB = {
     mango: { name: 'カララギマンゴー', emoji: '🥭', desc: 'ライフを少し回復する（最大ライフの25%）' },
@@ -43,9 +47,16 @@ function getEnemyActive() { return MASMON_BATTLE_STATE.enemyTeam[MASMON_BATTLE_S
 function convertMasmonToBattleUnit(masmonData) {
     return {
         name: masmonData.name,
+        monsterBaseName: masmonData.monsterBaseName || masmonData.name,
         emoji: masmonData.emoji,
+        isAwakened: !!masmonData.isAwakened,
         guts: 50,
         critBonusTurns: 0,
+        statusEffect: masmonData.statusEffect || null,   // 育成中に得た状態変化（根性/逆上/底力/闘魂/集中）
+        isGyakujoActive: false,
+        isSokojikaraFired: false,
+        isSokojikaraActive: false,
+        isShuchuActive: false,
         stats: {
             maxLife: masmonData.stats.maxLife,
             life: masmonData.stats.maxLife,
@@ -56,7 +67,20 @@ function convertMasmonToBattleUnit(masmonData) {
             def: masmonData.stats.def,
             gutsSpeed: masmonData.stats.gutsSpeed || 14
         },
-        skills: [...(masmonData.skills || [])]
+        skills: [...(masmonData.skills || [])],
+        skillEnhancements: JSON.parse(JSON.stringify(masmonData.skillEnhancements || {})) // 技の強化データ { skKey: { forceBonus, hitBonus, level } }
+    };
+}
+
+// --- 技の強化データを反映した実効ステータス（force/hitRate）を取得 ---
+function getMasmonEffectiveSkill(unit, skKey) {
+    const sk = SKILLS_DB[skKey];
+    if (!sk) return null;
+    const enh = (unit.skillEnhancements && unit.skillEnhancements[skKey]) || { forceBonus: 0, hitBonus: 0 };
+    return {
+        ...sk,
+        force: sk.force + (enh.forceBonus || 0),
+        hitRate: sk.hitRate === 100 ? 100 : Math.min(99, sk.hitRate + (enh.hitBonus || 0))
     };
 }
 
@@ -240,10 +264,10 @@ function startMasmonBattleCommon(floorText) {
     const enemyOwner = MASMON_BATTLE_STATE.enemyMeta[MASMON_BATTLE_STATE.enemyActiveIdx].ownerName || '相手ブリーダー';
 
     document.getElementById('enemy-name').textContent = `${e.name}（${enemyOwner}）`;
-    renderMonsterVisual(document.getElementById('battle-enemy-icon'), e.name, e.emoji, false);
+    renderMonsterVisual(document.getElementById('battle-enemy-icon'), e.monsterBaseName, e.emoji, e.isAwakened);
     document.getElementById('battle-enemy-type').textContent = e.name;
 
-    renderMonsterVisual(document.getElementById('battle-player-icon'), p.name, p.emoji, false);
+    renderMonsterVisual(document.getElementById('battle-player-icon'), p.monsterBaseName, p.emoji, p.isAwakened);
     document.getElementById('battle-player-name').textContent = p.name;
 
     const log = document.getElementById('battle-log');
@@ -274,11 +298,15 @@ function renderTeamIcons() {
             const isFainted = unit.stats.life <= 0;
             const isActive = idx === activeIdx;
             const icon = document.createElement('div');
-            icon.className = `w-8 h-8 flex items-center justify-center rounded-full text-base border-2 transition-all ${
+            icon.className = `w-8 h-8 flex items-center justify-center rounded-full text-base border-2 transition-all overflow-hidden ${
                 isFainted ? 'grayscale opacity-30 border-gray-700 bg-black/40' :
                 isActive ? 'border-amber-400 bg-amber-950/60 scale-110' : 'border-gray-600 bg-[#1a120b]'
             }`;
-            icon.textContent = isFainted ? '💀' : unit.emoji;
+            if (isFainted) {
+                icon.textContent = '💀';
+            } else {
+                renderMonsterVisual(icon, unit.monsterBaseName, unit.emoji, unit.isAwakened);
+            }
             icon.title = unit.name;
             container.appendChild(icon);
         });
@@ -328,13 +356,13 @@ function checkFaintAndProceed(side) {
     addLog(`${sideLabel}は【${newUnit.name}】を繰り出した！`);
 
     if (side === 'player') {
-        renderMonsterVisual(document.getElementById('battle-player-icon'), newUnit.name, newUnit.emoji, false);
+        renderMonsterVisual(document.getElementById('battle-player-icon'), newUnit.monsterBaseName, newUnit.emoji, newUnit.isAwakened);
         document.getElementById('battle-player-name').textContent = newUnit.name;
         renderMasmonBattleSkills();
     } else {
         const enemyOwner = MASMON_BATTLE_STATE.enemyMeta[nextIdx].ownerName || '相手ブリーダー';
         document.getElementById('enemy-name').textContent = `${newUnit.name}（${enemyOwner}）`;
-        renderMonsterVisual(document.getElementById('battle-enemy-icon'), newUnit.name, newUnit.emoji, false);
+        renderMonsterVisual(document.getElementById('battle-enemy-icon'), newUnit.monsterBaseName, newUnit.emoji, newUnit.isAwakened);
         document.getElementById('battle-enemy-type').textContent = newUnit.name;
     }
 
@@ -364,7 +392,14 @@ function startMasmonPlayerTurn(isFirstTurn = false) {
     }
 
     if (!isFirstTurn) {
+        const e = getEnemyActive();
         let recovery = Math.floor((p.stats.gutsSpeed || 14) + 30);
+        if (p.isGyakujoActive) {
+            recovery = Math.floor(recovery * 1.2);
+        }
+        if (p.statusEffect === "闘魂" && e && e.guts > 70) {
+            recovery = Math.floor(recovery * 1.5);
+        }
         if (MASMON_BATTLE_STATE.halfRecoveryNextTurn) {
             recovery = Math.floor(recovery / 2);
             addLog(`--- あなたのターン (防御ペナルティ) ---`);
@@ -405,9 +440,46 @@ function toggleMasmonSkillButtons(enable) {
     });
 }
 
+function checkAndActivateShuchu(unit) {
+    if (unit && unit.statusEffect === "集中" && unit.guts > 90 && !unit.isShuchuActive) {
+        unit.isShuchuActive = true;
+        addLog(`🎯 ${unit.name} に集中が発動！次の技の命中率 1.5 倍、ダメージが 1.2 倍に上昇！`);
+    }
+}
+
+// --- ダメージを受けた側の「根性」「底力」発動判定 ---
+function checkMasmonDefenseStatusTriggers(defender) {
+    if (defender.stats.life === 0 && defender.statusEffect === "根性") {
+        if (Math.random() < 0.50) {
+            defender.stats.life = 1;
+            addLog(`✨ 根性が発動！ ${defender.name} は力尽きず、ライフ 1 で耐え抜いた！`);
+        }
+    }
+    if (defender.statusEffect === "底力" && !defender.isSokojikaraFired) {
+        if (defender.stats.life > 0 && defender.stats.life < defender.stats.maxLife * 0.3) {
+            defender.isSokojikaraFired = true;
+            defender.isSokojikaraActive = true;
+            addLog(`💪 底力が発動！窮地に陥ったことで、次の技のダメージが 1.5 倍に上昇！`);
+        }
+    }
+}
+
+// --- ガッツを奪われた側の「逆上」発動判定 ---
+function checkMasmonGyakujoTrigger(defender) {
+    if (defender.statusEffect === "逆上" && !defender.isGyakujoActive) {
+        if (Math.random() < 0.65) {
+            defender.isGyakujoActive = true;
+            addLog(`💢 逆上が発動！ ${defender.name} の怒りが頂点に達し、ガッツ回復速度と与えるガッツダウン量が 1.2 倍に上昇！`);
+        }
+    }
+}
+
 function updateMasmonBattleStatsUI() {
     const p = getPlayerActive();
     const e = getEnemyActive();
+
+    checkAndActivateShuchu(p);
+    checkAndActivateShuchu(e);
 
     document.getElementById('player-hp-text').textContent = `${p.stats.life}/${p.stats.maxLife}`;
     document.getElementById('player-hp-bar').style.width = `${(p.stats.life / p.stats.maxLife) * 100}%`;
@@ -434,11 +506,13 @@ function updateMasmonBattleStatsUI() {
         }
         const hitSpan = btn.querySelector('.hit-rate-text');
         if (hitSpan && sk.type !== 'heal' && !sk.type.startsWith('buff')) {
-            if (sk.hitRate === 100) {
+            const effSk = getMasmonEffectiveSkill(p, skKey);
+            if (effSk.hitRate === 100) {
                 hitSpan.textContent = `命中:必中`;
             } else {
                 const mods = getGutsModifiers(gutsVal);
-                const actualHit = Math.max(10, Math.min(99, (sk.hitRate + mods.hitMod) + (p.stats.hit - e.stats.spd) * 0.5));
+                let actualHit = Math.max(10, Math.min(99, (effSk.hitRate + mods.hitMod) + (p.stats.hit - e.stats.spd) * 0.5));
+                if (p.isShuchuActive) actualHit = Math.min(99, actualHit * 1.5);
                 hitSpan.textContent = `命中:${Math.round(actualHit)}%`;
             }
         }
@@ -457,8 +531,9 @@ function renderMasmonBattleSkills() {
     const container = document.getElementById('battle-skills-container');
     container.innerHTML = '';
 
-    getPlayerActive().skills.forEach(skKey => {
-        const sk = SKILLS_DB[skKey];
+    const p = getPlayerActive();
+    p.skills.forEach(skKey => {
+        const sk = getMasmonEffectiveSkill(p, skKey);
         if (!sk) return;
         const btn = document.createElement('button');
         btn.id = `skill-btn-${skKey}`;
@@ -568,10 +643,11 @@ function useMasmonItem(itemKey) {
 function executeMasmonPlayerSkill(skKey) {
     if (MASMON_BATTLE_STATE.isBattleEnd || !MASMON_BATTLE_STATE.isPlayerTurnActive) return;
 
-    const sk = SKILLS_DB[skKey];
-    if (!sk) return;
+    const rawSk = SKILLS_DB[skKey];
+    if (!rawSk) return;
     const p = getPlayerActive();
     const e = getEnemyActive();
+    const sk = getMasmonEffectiveSkill(p, skKey);
 
     if (p.guts < sk.cost) return;
 
@@ -585,7 +661,10 @@ function executeMasmonPlayerSkill(skKey) {
     setTimeout(() => {
         if (sk.type === 'pow' || sk.type === 'int') {
             const isCertain = sk.hitRate === 100;
-            const hitChance = isCertain ? 100 : Math.max(10, Math.min(99, (sk.hitRate + mods.hitMod) + (p.stats.hit - e.stats.spd) * 0.5));
+            let hitChance = isCertain ? 100 : Math.max(10, Math.min(99, (sk.hitRate + mods.hitMod) + (p.stats.hit - e.stats.spd) * 0.5));
+            if (p.isShuchuActive && !isCertain) {
+                hitChance = Math.min(99, hitChance * 1.5);
+            }
             const isHit = isCertain || (Math.random() * 100 < hitChance);
 
             if (isHit) {
@@ -602,22 +681,44 @@ function executeMasmonPlayerSkill(skKey) {
                 let rawDmg = ((effectiveAttacker * sk.force) * mods.dmgMod) - (defenderStat * 0.35);
                 let damage = Math.floor(Math.max(10, (rawDmg * (0.9 + Math.random() * 0.2)) * defenderGutsDefenseMod));
 
+                let extraDmgMsg = "";
+                if (p.isSokojikaraActive) {
+                    damage = Math.floor(damage * 1.5);
+                    extraDmgMsg += " (底力×1.5)";
+                }
+                if (p.isShuchuActive) {
+                    damage = Math.floor(damage * 1.2);
+                    extraDmgMsg += " (集中×1.2)";
+                }
+
                 const critChance = 0.10 + (p.critBonusTurns > 0 ? 0.25 : 0);
                 let isCrit = Math.random() < critChance;
                 if (isCrit) {
                     damage = Math.floor(damage * 1.5);
-                    addLog(`★クリティカルヒット！ ${e.name} に ${damage} ダメージ！`);
+                }
+                damage = Math.max(1, Math.floor(damage * MASMON_BATTLE_DAMAGE_MULTIPLIER));
+                if (isCrit) {
+                    addLog(`★クリティカルヒット！ ${e.name} に ${damage} ダメージ！${extraDmgMsg}`);
                 } else {
-                    addLog(`${e.name} に ${damage} ダメージ！`);
+                    addLog(`${e.name} に ${damage} ダメージ！${extraDmgMsg}`);
                 }
 
                 e.stats.life = Math.max(0, e.stats.life - damage);
+                checkMasmonDefenseStatusTriggers(e);
 
-                if (sk.gutsDown > 0) {
-                    const actualGutsDown = Math.min(e.guts, sk.gutsDown);
-                    e.guts = Math.max(0, e.guts - actualGutsDown);
-                    addLog(`さらに！相手のガッツを ${actualGutsDown} 奪い取った！(現在: ${Math.floor(e.guts)})`);
+                let finalGutsDown = sk.gutsDown || 0;
+                if (p.isGyakujoActive && finalGutsDown > 0) {
+                    finalGutsDown = Math.floor(finalGutsDown * 1.2);
                 }
+                if (finalGutsDown > 0) {
+                    const actualGutsDown = Math.min(e.guts, finalGutsDown);
+                    e.guts = Math.max(0, e.guts - actualGutsDown);
+                    addLog(`さらに！相手のガッツを ${actualGutsDown} 奪い取った！${p.isGyakujoActive ? " (逆上×1.2)" : ""} (現在: ${Math.floor(e.guts)})`);
+                    checkMasmonGyakujoTrigger(e);
+                }
+
+                p.isSokojikaraActive = false;
+                p.isShuchuActive = false;
 
                 showEffect(isCrit ? '💥 CRITICAL!! 💥' : '💥 HIT! 💥');
                 showDamagePopup('enemy-dmg-popup', damage, isCrit);
@@ -726,7 +827,13 @@ function executeMasmonEnemyTurn() {
         e.critBonusTurns--;
     }
 
-    const enemyRecovery = Math.floor((e.stats.gutsSpeed || 14) + 20);
+    let enemyRecovery = Math.floor((e.stats.gutsSpeed || 14) + 30);
+    if (e.isGyakujoActive) {
+        enemyRecovery = Math.floor(enemyRecovery * 1.2);
+    }
+    if (e.statusEffect === "闘魂" && p && p.guts > 70) {
+        enemyRecovery = Math.floor(enemyRecovery * 1.5);
+    }
     e.guts = Math.min(100, e.guts + enemyRecovery);
     addLog(`${e.name} のガッツが ${enemyRecovery} 回復した！(現在: ${Math.floor(e.guts)})`);
 
@@ -749,7 +856,8 @@ function executeMasmonEnemyTurn() {
             showEffect('💨 NO ACTION 💨');
         } else {
             affordableSkills.sort((a, b) => b.info.cost - a.info.cost);
-            const sk = affordableSkills[0].info;
+            const skKey = affordableSkills[0].key;
+            const sk = getMasmonEffectiveSkill(e, skKey);
             e.guts -= sk.cost;
             updateMasmonBattleStatsUI();
 
@@ -759,7 +867,10 @@ function executeMasmonEnemyTurn() {
             setTimeout(() => {
                 if (sk.type === 'pow' || sk.type === 'int') {
                     const isCertain = sk.hitRate === 100;
-                    const hitChance = isCertain ? 100 : Math.max(10, Math.min(99, sk.hitRate + (e.stats.hit - p.stats.spd) * 0.5));
+                    let hitChance = isCertain ? 100 : Math.max(10, Math.min(99, sk.hitRate + (e.stats.hit - p.stats.spd) * 0.5));
+                    if (e.isShuchuActive && !isCertain) {
+                        hitChance = Math.min(99, hitChance * 1.5);
+                    }
                     const isHit = isCertain || (Math.random() * 100 < hitChance);
 
                     if (isHit) {
@@ -776,6 +887,13 @@ function executeMasmonEnemyTurn() {
                         let rawDmg = (effectiveAttacker * sk.force) - (defenderStat * 0.35);
                         let damage = Math.floor(Math.max(8, (rawDmg * (0.9 + Math.random() * 0.2)) * playerGutsDefenseMod));
 
+                        if (e.isSokojikaraActive) {
+                            damage = Math.floor(damage * 1.5);
+                        }
+                        if (e.isShuchuActive) {
+                            damage = Math.floor(damage * 1.2);
+                        }
+
                         const critChance = 0.10 + (e.critBonusTurns > 0 ? 0.25 : 0);
                         const isCrit = Math.random() < critChance;
                         if (isCrit) damage = Math.floor(damage * 1.5);
@@ -785,14 +903,25 @@ function executeMasmonEnemyTurn() {
                             addLog(`【防御効果】攻撃を盾で受け流し、ダメージを半減した！`);
                         }
 
+                        damage = Math.max(1, Math.floor(damage * MASMON_BATTLE_DAMAGE_MULTIPLIER));
+
                         p.stats.life = Math.max(0, p.stats.life - damage);
                         addLog(isCrit ? `★相手のクリティカル！ ${p.name} は ${damage} ダメージを受けた！` : `${p.name} は ${damage} ダメージを受けた！`);
+                        checkMasmonDefenseStatusTriggers(p);
 
-                        if (sk.gutsDown > 0) {
-                            const actualGutsDown = Math.min(p.guts, sk.gutsDown);
+                        let finalGutsDown = sk.gutsDown || 0;
+                        if (e.isGyakujoActive && finalGutsDown > 0) {
+                            finalGutsDown = Math.floor(finalGutsDown * 1.2);
+                        }
+                        if (finalGutsDown > 0) {
+                            const actualGutsDown = Math.min(p.guts, finalGutsDown);
                             p.guts = Math.max(0, p.guts - actualGutsDown);
                             addLog(`さらに！ ${p.name} のガッツが ${actualGutsDown} 奪われた！(現在: ${Math.floor(p.guts)})`);
+                            checkMasmonGyakujoTrigger(p);
                         }
+
+                        e.isSokojikaraActive = false;
+                        e.isShuchuActive = false;
 
                         showEffect('⚡ 被弾!! ⚡');
                         showDamagePopup('player-dmg-popup', damage, false);

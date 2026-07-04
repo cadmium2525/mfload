@@ -1,66 +1,92 @@
 // =====================================================
-// マスモン リアルタイム対戦：マッチング基盤（フェーズ4）
+// マスモン リアルタイム対戦：マッチング基盤（フェーズ4、フェーズ⑥で団体戦対応）
 // Firebase Realtime Database: battle_rooms/{keyword}
 //
-// このファイルが担当する範囲（フェーズ4）:
+// このファイルが担当する範囲:
 //   ・2人のブリーダーが同じ「合言葉」を入力してルームを作成／参加する
 //   ・待機中ルームはキャンセルされるまで残り続ける
 //   ・マッチング成立後の土台（プレイヤー情報の同期・生存確認用ハートビート）
+//   ・個人戦（1体）／団体戦（最大3体）どちらの持ち込み編成にも対応（フェーズ⑥）
 //
-// 実際のターン制バトル同期ロジック（1行動→相手ターン、防御の技一覧統合など）は
-// フェーズ⑤で battle_rooms/{keyword}/battleState 以下に実装予定。
-// 対戦中の切断・無応答検知（60秒で不戦勝）もフェーズ⑤でこのハートビート基盤を使って実装する。
+// 実際のターン制バトル同期ロジック（1行動→相手ターン、防御の技一覧統合、
+// 団体戦の交代処理など）は battle_rooms/{keyword}/battleState 以下、
+// js/masmon_realtime_battle.js で実装している。
 // =====================================================
 
 const REALTIME_HEARTBEAT_INTERVAL_MS = 15000;   // 15秒ごとに生存通知
-const REALTIME_DISCONNECT_TIMEOUT_MS = 60000;   // フェーズ⑤で使用：対戦中60秒無応答で不戦勝
+const REALTIME_DISCONNECT_TIMEOUT_MS = 60000;   // 対戦中60秒無応答で不戦勝
 
 let realtimeRoomKeyword = null;
 let realtimeRoomRef = null;
 let realtimeRoomListener = null;
 let realtimeMySlot = null;      // 'player1' | 'player2'
 let realtimeHeartbeatTimer = null;
-let realtimePendingMasmon = null;
+let realtimePendingTeam = [];   // 持ち込みマスモン配列（個人戦なら要素1、団体戦なら最大3）
+let realtimePendingType = 'solo'; // 'solo' | 'team'
 let realtimePendingItems = [];
 
 // -----------------------------------------------------
 // 対戦アイテム選択画面 → リアルタイム対戦への橋渡し
-// （現状はソロ／個人戦のみ対応。団体戦のリアルタイム対戦はフェーズ⑥で対応予定）
+// フェーズ⑥より個人戦（solo）・団体戦（team）の両方に対応
 // -----------------------------------------------------
 function proceedToRealtimeFromItemSelect() {
-    if (!PENDING_MASMON_BATTLE || PENDING_MASMON_BATTLE.type !== 'solo') {
-        showToast('リアルタイム対戦は現在、個人戦のみ対応しています。');
+    if (!PENDING_MASMON_BATTLE || (PENDING_MASMON_BATTLE.type !== 'solo' && PENDING_MASMON_BATTLE.type !== 'team')) {
+        showToast('編成情報が見つかりませんでした。');
         return;
     }
-    const masmon = PENDING_MASMON_BATTLE.masmon;
     const itemLoadout = masmonItemSlots.filter(k => k !== null);
+
+    if (PENDING_MASMON_BATTLE.type === 'solo') {
+        realtimePendingType = 'solo';
+        realtimePendingTeam = [PENDING_MASMON_BATTLE.masmon];
+    } else {
+        realtimePendingType = 'team';
+        realtimePendingTeam = [...PENDING_MASMON_BATTLE.masmons];
+    }
+
     PENDING_MASMON_BATTLE = null;
-    showRealtimeKeywordScreen(masmon, itemLoadout);
+    showRealtimeKeywordScreen(realtimePendingTeam, itemLoadout, realtimePendingType);
 }
 
 // -----------------------------------------------------
 // キーワード入力画面
 // -----------------------------------------------------
-function showRealtimeKeywordScreen(masmon, itemLoadout) {
-    realtimePendingMasmon = masmon;
+function showRealtimeKeywordScreen(team, itemLoadout, battleType) {
+    realtimePendingTeam = team;
+    realtimePendingType = battleType || (team.length > 1 ? 'team' : 'solo');
     realtimePendingItems = itemLoadout || [];
 
     const preview = document.getElementById('realtime-selected-masmon-preview');
     preview.innerHTML = '';
-    const iconWrap = document.createElement('div');
-    iconWrap.className = 'w-10 h-10 flex items-center justify-center text-2xl flex-shrink-0 bg-[#1a120b] rounded-full border border-sky-900/40';
-    renderMonsterVisual(iconWrap, masmon.monsterBaseName, masmon.emoji, false);
-    const info = document.createElement('div');
-    info.className = 'flex-1 min-w-0';
+    preview.className = 'bg-[#2a1b15] border border-sky-900/50 rounded-xl p-2.5 space-y-2';
+
+    const isTeam = realtimePendingType === 'team';
+    const header = document.createElement('div');
+    header.className = 'text-[10px] text-sky-300 font-bold';
+    header.textContent = isTeam ? `🛡️⚔️🛡️ 団体戦編成（${team.length}体）` : '⚔️ 個人戦編成';
+    preview.appendChild(header);
+
+    team.forEach(m => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center space-x-2';
+        const iconWrap = document.createElement('div');
+        iconWrap.className = 'w-9 h-9 flex items-center justify-center text-xl flex-shrink-0 bg-[#1a120b] rounded-full border border-sky-900/40';
+        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened);
+        const info = document.createElement('div');
+        info.className = 'flex-1 min-w-0';
+        info.innerHTML = `<div class="text-xs font-bold text-sky-200 truncate">${m.name}<span class="text-[9px] text-gray-400 ml-1">（${m.monsterBaseName}）</span></div>`;
+        row.appendChild(iconWrap);
+        row.appendChild(info);
+        preview.appendChild(row);
+    });
+
     const itemNames = (itemLoadout && itemLoadout.length > 0)
         ? itemLoadout.map(k => MASMON_ITEM_DB[k].emoji).join(' ')
         : 'なし';
-    info.innerHTML = `
-        <div class="text-xs font-bold text-sky-200 truncate">出撃マスモン: ${masmon.name}</div>
-        <div class="text-[9px] text-gray-400 mt-0.5">持ち込みアイテム: ${itemNames}</div>
-    `;
-    preview.appendChild(iconWrap);
-    preview.appendChild(info);
+    const itemRow = document.createElement('div');
+    itemRow.className = 'text-[9px] text-gray-400 pt-1 border-t border-sky-950';
+    itemRow.textContent = `持ち込みアイテム: ${itemNames}`;
+    preview.appendChild(itemRow);
 
     document.getElementById('realtime-keyword-input').value = '';
     document.getElementById('realtime-keyword-status').textContent = '';
@@ -70,8 +96,7 @@ function showRealtimeKeywordScreen(masmon, itemLoadout) {
 }
 
 function cancelRealtimeSetup() {
-    realtimePendingMasmon = null;
-    realtimePendingItems = [];
+    resetRealtimeRoomState();
     showMasmonList();
 }
 
@@ -109,13 +134,14 @@ async function startRealtimeMatching() {
     const myPayload = {
         id: myId,
         name: GAME_STATE.playerName || 'ブリーダー',
-        masmon: {
-            name: realtimePendingMasmon.name,
-            emoji: realtimePendingMasmon.emoji,
-            monsterBaseName: realtimePendingMasmon.monsterBaseName,
-            stats: realtimePendingMasmon.stats,
-            skills: realtimePendingMasmon.skills
-        },
+        battleType: realtimePendingType,
+        team: realtimePendingTeam.map(m => ({
+            name: m.name,
+            emoji: m.emoji,
+            monsterBaseName: m.monsterBaseName,
+            stats: m.stats,
+            skills: m.skills
+        })),
         items: buildItemCounts(realtimePendingItems),
         lastSeen: Date.now()
     };
@@ -131,10 +157,16 @@ async function startRealtimeMatching() {
             if (!current) {
                 return {
                     status: 'waiting',
+                    battleType: myPayload.battleType,
                     createdAt: now,
                     player1: { ...myPayload, lastSeen: now },
                     player2: null
                 };
+            }
+            // 合言葉は「編成タイプ（個人戦/団体戦）」が一致する相手同士のみマッチングする
+            if (current.battleType && current.battleType !== myPayload.battleType &&
+                !(current.player1 && current.player1.id === myId) && !(current.player2 && current.player2.id === myId)) {
+                return; // abort：編成タイプ不一致
             }
             if (current.player1 && current.player1.id === myId) {
                 current.player1 = { ...myPayload, lastSeen: now };
@@ -162,7 +194,7 @@ async function startRealtimeMatching() {
     }
 
     if (!txResult.committed) {
-        statusEl.textContent = 'この合言葉は既に他の組で使用中です。別の合言葉をお試しください。';
+        statusEl.textContent = 'この合言葉は既に他の組で使用中か、個人戦／団体戦の編成が一致しません。別の合言葉をお試しください。';
         statusEl.className = 'text-[10px] text-center text-red-400';
         document.getElementById('realtime-keyword-submit-btn').disabled = false;
         return;
@@ -224,12 +256,16 @@ function enterRealtimeMatchedScreen(roomData) {
     const myData = roomData[realtimeMySlot];
     const opponentSlot = realtimeMySlot === 'player1' ? 'player2' : 'player1';
     const opponentData = roomData[opponentSlot];
+    const isTeam = roomData.battleType === 'team';
+
+    const myNames = (myData.team || []).map(m => m.name).join('、');
+    const oppNames = (opponentData.team || []).map(m => m.name).join('、');
 
     const detail = document.getElementById('realtime-matched-detail');
     detail.innerHTML = `
-        <div class="text-xs text-sky-300 font-bold border-b border-sky-800 pb-1 mb-1">対戦カード</div>
-        <div class="flex justify-between text-xs"><span class="text-gray-400">あなた:</span><span class="text-white font-bold">${myData.name} の ${myData.masmon.name}</span></div>
-        <div class="flex justify-between text-xs"><span class="text-gray-400">対戦相手:</span><span class="text-white font-bold">${opponentData.name} の ${opponentData.masmon.name}</span></div>
+        <div class="text-xs text-sky-300 font-bold border-b border-sky-800 pb-1 mb-1">対戦カード（${isTeam ? '団体戦' : '個人戦'}）</div>
+        <div class="flex justify-between text-xs"><span class="text-gray-400">あなた:</span><span class="text-white font-bold">${myData.name} の ${myNames}</span></div>
+        <div class="flex justify-between text-xs"><span class="text-gray-400">対戦相手:</span><span class="text-white font-bold">${opponentData.name} の ${oppNames}</span></div>
     `;
 
     changeScreen('screen-masmon-realtime-matched');
@@ -266,7 +302,7 @@ async function leaveRealtimeRoom() {
 }
 
 // -----------------------------------------------------
-// ハートビート（生存通知）：フェーズ⑤の切断検知の土台
+// ハートビート（生存通知）：切断検知の土台
 // -----------------------------------------------------
 function startRealtimeHeartbeat() {
     stopRealtimeHeartbeat();
@@ -294,6 +330,7 @@ function resetRealtimeRoomState() {
     realtimeRoomKeyword = null;
     realtimeRoomRef = null;
     realtimeMySlot = null;
-    realtimePendingMasmon = null;
+    realtimePendingTeam = [];
+    realtimePendingType = 'solo';
     realtimePendingItems = [];
 }

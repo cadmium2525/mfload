@@ -56,7 +56,7 @@ function renderMasmonTeamSelectList() {
 
         const iconWrap = document.createElement('div');
         iconWrap.className = 'w-10 h-10 flex items-center justify-center text-2xl flex-shrink-0 bg-[#1a120b] rounded-full border border-purple-900/40 relative';
-        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, false);
+        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened);
         if (isSelected) {
             const badge = document.createElement('span');
             badge.className = 'absolute -top-1 -right-1 w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center';
@@ -129,10 +129,13 @@ function showMasmonItemSelectScreen() {
     masmonItemSlots = [null, null, null];
     renderMasmonItemSelectScreen();
 
-    // リアルタイム対戦（他プレイヤーとの対戦）は現状ソロ（個人戦）のみ対応
+    // リアルタイム対戦（他プレイヤーとの対戦）：フェーズ⑥より個人戦・団体戦の両方に対応
     const realtimeBtn = document.getElementById('masmon-item-realtime-btn');
     if (realtimeBtn) {
-        realtimeBtn.classList.toggle('hidden', !(PENDING_MASMON_BATTLE && PENDING_MASMON_BATTLE.type === 'solo'));
+        realtimeBtn.classList.toggle('hidden', !PENDING_MASMON_BATTLE);
+        realtimeBtn.textContent = (PENDING_MASMON_BATTLE && PENDING_MASMON_BATTLE.type === 'team')
+            ? '🌐 他プレイヤーとリアルタイム団体戦'
+            : '🌐 他プレイヤーとリアルタイム対戦';
     }
 
     changeScreen('screen-masmon-item-select');

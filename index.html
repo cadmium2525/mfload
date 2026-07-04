@@ -84,6 +84,10 @@
                         <i class="fa-solid fa-paw"></i>
                         <span>マイマスモンを見る</span>
                     </button>
+                    <button onclick="openRestoreCodeModal()" class="w-full py-2 bg-[#1a120b] hover:bg-[#2a1b15] text-cyan-400 font-bold rounded-xl text-xs shadow border border-cyan-800 transition-all active:scale-95 flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-key"></i>
+                        <span>引き継ぎコードから復元</span>
+                    </button>
                     <p class="text-[10px] text-gray-400">※与ダメージ効率を高め、30階層を突破しましょう！</p>
                 </div>
             </div>
@@ -581,6 +585,19 @@
                     <p class="text-[10px] text-gray-400 mt-1">保存数: <span id="masmon-list-count">0</span>/10</p>
                 </div>
 
+                <div class="bg-cyan-950/30 p-2.5 rounded-xl border border-cyan-800 text-left">
+                    <p class="text-[10px] text-cyan-300 font-bold mb-1">
+                        <i class="fa-solid fa-key"></i> 引き継ぎコード
+                        <span class="text-gray-400 font-normal">（機種変更・データ復元用）</span>
+                    </p>
+                    <div class="flex items-center space-x-2">
+                        <span id="transfer-code-display" class="flex-1 bg-[#0f0906] border border-cyan-900 rounded-lg px-2 py-1.5 text-[11px] font-mono text-cyan-200 tracking-wide break-all">----</span>
+                        <button onclick="copyTransferCode()" class="shrink-0 px-3 py-1.5 bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] font-bold rounded-lg transition-all active:scale-95">
+                            コピー
+                        </button>
+                    </div>
+                </div>
+
                 <div class="flex-1 overflow-y-auto space-y-2 pr-1" id="masmon-list-container">
                     <div class="text-center text-gray-500 text-xs py-8">読み込み中...</div>
                 </div>
@@ -766,10 +783,69 @@
         トースト通知
     </div>
 
+    <!-- 引き継ぎコード：復元入力モーダル -->
+    <div id="restore-code-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 hidden" onclick="closeRestoreCodeModal()">
+        <div class="bg-[#2a1b15] w-full max-w-xs p-4 rounded-2xl border-2 border-cyan-600 space-y-3 shadow-2xl" onclick="event.stopPropagation()">
+            <h4 class="text-base font-black text-white pixel-font flex items-center space-x-2">
+                <i class="fa-solid fa-key text-cyan-400"></i>
+                <span>引き継ぎコードから復元</span>
+            </h4>
+            <p class="text-[11px] text-gray-300 leading-relaxed">
+                以前の端末やブラウザで表示された引き継ぎコードを入力してください。
+            </p>
+            <input type="text" id="restore-code-input" placeholder="XXXXXXXX-XXXXXXXX"
+                class="w-full bg-[#1a120b] border border-cyan-800 text-white text-sm font-mono rounded-lg px-3 py-2.5 focus:outline-none focus:border-cyan-400 placeholder-gray-600 tracking-wide">
+            <div class="flex space-x-2">
+                <button onclick="closeRestoreCodeModal()" class="flex-1 py-2.5 bg-[#1a120b] hover:bg-[#241a14] text-gray-300 font-bold rounded-xl text-xs border border-gray-700 transition-all active:scale-95">
+                    キャンセル
+                </button>
+                <button id="restore-code-submit-btn" onclick="submitRestoreCode()" class="flex-1 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-xs transition-all active:scale-95">
+                    復元
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引き継ぎコード：復元失敗モーダル -->
+    <div id="restore-error-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 hidden" onclick="closeRestoreErrorModal()">
+        <div class="bg-[#2a1b15] w-full max-w-xs p-4 rounded-2xl border-2 border-red-700 space-y-3 shadow-2xl text-center" onclick="event.stopPropagation()">
+            <div class="text-3xl">⚠️</div>
+            <h4 class="text-sm font-black text-red-400 pixel-font">引き継ぎコードが見つかりません</h4>
+            <p class="text-[11px] text-gray-300 leading-relaxed">入力内容をご確認のうえ、もう一度お試しください。</p>
+            <button onclick="closeRestoreErrorModal()" class="w-full py-2.5 bg-red-700 hover:bg-red-600 text-white font-bold rounded-xl text-xs transition-all active:scale-95">
+                閉じる
+            </button>
+        </div>
+    </div>
+
+    <!-- 引き継ぎコード：初回案内モーダル -->
+    <div id="first-time-transfer-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-[#2a1b15] w-full max-w-xs p-4 rounded-2xl border-2 border-cyan-600 space-y-3 shadow-2xl text-center">
+            <div class="text-3xl">🔑</div>
+            <h4 class="text-sm font-black text-cyan-300 pixel-font">引き継ぎコードの保管をお願いします</h4>
+            <p class="text-[11px] text-gray-300 leading-relaxed text-left">
+                このコードはデータ復元に必要です。<br>
+                ブラウザのキャッシュ削除や、別端末で遊ぶ際に必要となります。<br>
+                スクリーンショットやメモ等で必ず保管してください。
+            </p>
+            <div class="bg-[#0f0906] border border-cyan-900 rounded-lg px-2 py-2 text-[11px] font-mono text-cyan-200 tracking-wide break-all" id="first-time-code-display">----</div>
+            <div class="flex space-x-2">
+                <button onclick="copyFirstTimeTransferCode()" class="flex-1 py-2.5 bg-cyan-700 hover:bg-cyan-600 text-white font-bold rounded-xl text-xs transition-all active:scale-95">
+                    コピー
+                </button>
+                <button onclick="closeFirstTimeTransferNotice()" class="flex-1 py-2.5 bg-[#1a120b] hover:bg-[#241a14] text-gray-300 font-bold rounded-xl text-xs border border-gray-700 transition-all active:scale-95">
+                    閉じる
+                </button>
+            </div>
+        </div>
+    </div>
+
+
     <!-- ==================== SCRIPT / ゲームロジック ==================== -->
     <script src="js/database.js"></script>
     <script src="js/game.js"></script>
     <script src="js/masmon.js"></script>
+    <script src="js/masmon_transfer.js"></script>
     <script src="js/masmon_battle.js"></script>
     <script src="js/masmon_team.js"></script>
     <script src="js/masmon_realtime.js"></script>

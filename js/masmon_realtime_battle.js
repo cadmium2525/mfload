@@ -1,5 +1,5 @@
 // =====================================================
-// マスモン リアルタイム対戦：ターン同期バトルロジック（フェーズ⑤）
+// マスモン リアルタイム対戦：ターン同期バトルロジック（フェーズ⑤／フェーズ⑥で団体戦対応）
 // Firebase Realtime Database: battle_rooms/{keyword}/battleState, battleLog
 //
 // フェーズ④で構築したマッチング基盤（battle_rooms/{keyword} の
@@ -14,6 +14,15 @@
 //     Firebase Realtime Database の transaction で書き込むことで同期する
 //     （相手側は listener で結果を受け取って表示するだけ＝二重計算しない）
 //   ・60秒間相手の応答（ハートビート）が無い場合、不戦勝を宣言できる
+//
+// フェーズ⑥：団体戦（3vs3）対応
+//   ・battleState.teams.{player1|player2} = { units: [...], activeIdx } の形式で
+//     個人戦（units長さ1）・団体戦（units長さ最大3）を同じ構造で扱う
+//   ・行動によって場に出ている側のユニットが戦闘不能になった場合、
+//     行動を実行した側のtransaction内で次の生存ユニットへ自動的に交代する
+//     （CPU団体戦のcheckFaintAndProceedと同等の考え方をtransaction内に内包）
+//   ・両チームとも全滅していない限りバトルは継続し、1回の行動の後は
+//     必ず相手チームの「場に出ているユニット」のターンへ移る
 // =====================================================
 
 const REALTIME_BATTLE = {
@@ -31,6 +40,12 @@ const REALTIME_BATTLE = {
     actionInProgress: false,
     seenLogKeys: {}          // 二重描画防止
 };
+
+// --- 現在のバトル状態から「場に出ているユニット」を取得するヘルパー ---
+function getRealtimeActiveUnit(state, slot) {
+    const team = state.teams[slot];
+    return team.units[team.activeIdx];
+}
 
 // -----------------------------------------------------
 // マッチング成立画面 →「バトル開始」ボタン
@@ -90,7 +105,8 @@ function convertRoomMasmonToRealtimeUnit(masmon) {
     return {
         name: masmon.name,
         emoji: masmon.emoji,
-        monsterBaseName: masmon.monsterBaseName,
+        monsterBaseName: masmon.monsterBaseName || masmon.name,
+        isAwakened: !!masmon.isAwakened,
         life: s.maxLife,
         maxLife: s.maxLife,
         pow: s.pow,
@@ -102,20 +118,39 @@ function convertRoomMasmonToRealtimeUnit(masmon) {
         guts: 50,
         critBonusTurns: 0,
         isDefending: false,
-        skills: [...(masmon.skills || [])]
+        statusEffect: masmon.statusEffect || null,
+        isGyakujoActive: false,
+        isSokojikaraFired: false,
+        isSokojikaraActive: false,
+        isShuchuActive: false,
+        skills: [...(masmon.skills || [])],
+        skillEnhancements: JSON.parse(JSON.stringify(masmon.skillEnhancements || {}))
+    };
+}
+
+// --- 技の強化データを反映した実効ステータス（force/hitRate）を取得（リアルタイム対戦用） ---
+function getRealtimeEffectiveSkill(unit, skKey) {
+    const sk = SKILLS_DB[skKey];
+    if (!sk) return null;
+    const enh = (unit.skillEnhancements && unit.skillEnhancements[skKey]) || { forceBonus: 0, hitBonus: 0 };
+    return {
+        ...sk,
+        force: sk.force + (enh.forceBonus || 0),
+        hitRate: sk.hitRate === 100 ? 100 : Math.min(99, sk.hitRate + (enh.hitBonus || 0))
     };
 }
 
 function buildInitialRealtimeBattleState(roomData) {
-    const p1Unit = convertRoomMasmonToRealtimeUnit(roomData.player1.masmon);
-    const p2Unit = convertRoomMasmonToRealtimeUnit(roomData.player2.masmon);
-    const turnOwner = p2Unit.spd > p1Unit.spd ? 'player2' : 'player1';
+    const p1Team = (roomData.player1.team || []).map(convertRoomMasmonToRealtimeUnit);
+    const p2Team = (roomData.player2.team || []).map(convertRoomMasmonToRealtimeUnit);
+    const turnOwner = p2Team[0].spd > p1Team[0].spd ? 'player2' : 'player1';
 
     const p1Items = roomData.player1.items || { mango: 0, kuri: 0, toro: 0 };
     const p2Items = roomData.player2.items || { mango: 0, kuri: 0, toro: 0 };
 
     return {
         status: 'active',
+        battleType: roomData.battleType || (p1Team.length > 1 || p2Team.length > 1 ? 'team' : 'solo'),
         turnOwner: turnOwner,
         turnNumber: 1,
         winner: null,
@@ -124,7 +159,10 @@ function buildInitialRealtimeBattleState(roomData) {
             player1: roomData.player1.name || 'ブリーダー1',
             player2: roomData.player2.name || 'ブリーダー2'
         },
-        units: { player1: p1Unit, player2: p2Unit },
+        teams: {
+            player1: { units: p1Team, activeIdx: 0 },
+            player2: { units: p2Team, activeIdx: 0 }
+        },
         items: { player1: { ...p1Items }, player2: { ...p2Items } },
         itemsInitial: { player1: { ...p1Items }, player2: { ...p2Items } },
         createdAt: Date.now(),
@@ -182,15 +220,24 @@ function enterRealtimeBattleScreen(state) {
     document.getElementById('battle-endturn-controls').classList.add('hidden');
     document.getElementById('realtime-surrender-btn').classList.remove('hidden');
     document.getElementById('realtime-turn-indicator').classList.remove('hidden');
-    document.getElementById('player-team-icons').classList.add('hidden');
-    document.getElementById('enemy-team-icons').classList.add('hidden');
     document.getElementById('realtime-disconnect-banner').classList.add('hidden');
 
+    const isTeam = state.battleType === 'team';
     const oppName = state.ownerNames ? state.ownerNames[REALTIME_BATTLE.oppSlot] : '対戦相手';
-    document.getElementById('battle-floor-indicator').textContent = `🌐 リアルタイム対戦 vs ${oppName}`;
+    document.getElementById('battle-floor-indicator').textContent = isTeam
+        ? `🌐🛡️ リアルタイム団体戦 vs ${oppName}`
+        : `🌐 リアルタイム対戦 vs ${oppName}`;
+
+    const myFirst = getRealtimeActiveUnit(state, REALTIME_BATTLE.mySlot);
+    const oppFirst = getRealtimeActiveUnit(state, REALTIME_BATTLE.oppSlot);
 
     const log = document.getElementById('battle-log');
-    log.innerHTML = `<div>マッチング成立！ ${state.units.player1.name} と ${state.units.player2.name} のバトル開始！</div>`;
+    log.innerHTML = `<div>マッチング成立！ ${myFirst.name} と ${oppFirst.name} のバトル開始！</div>`;
+    if (isTeam) {
+        const mySize = state.teams[REALTIME_BATTLE.mySlot].units.length;
+        const oppSize = state.teams[REALTIME_BATTLE.oppSlot].units.length;
+        log.innerHTML += `<div class="text-indigo-300">団体戦スタート！お互い${mySize}体 vs ${oppSize}体で戦う！</div>`;
+    }
 
     changeScreen('screen-battle');
 }
@@ -203,22 +250,23 @@ function renderRealtimeBattleUI(state) {
 
     const mySlot = REALTIME_BATTLE.mySlot;
     const oppSlot = REALTIME_BATTLE.oppSlot;
-    const me = state.units[mySlot];
-    const opp = state.units[oppSlot];
+    const me = getRealtimeActiveUnit(state, mySlot);
+    const opp = getRealtimeActiveUnit(state, oppSlot);
     const oppOwnerName = state.ownerNames ? state.ownerNames[oppSlot] : '対戦相手';
+
     const isMyTurn = state.status === 'active' && state.turnOwner === mySlot;
 
     document.getElementById('battle-turn-counter').textContent = state.turnNumber || 1;
 
     document.getElementById('enemy-name').textContent = `${opp.name}（${oppOwnerName}）`;
-    renderMonsterVisual(document.getElementById('battle-enemy-icon'), opp.name, opp.emoji, false);
+    renderMonsterVisual(document.getElementById('battle-enemy-icon'), opp.monsterBaseName, opp.emoji, opp.isAwakened);
     document.getElementById('battle-enemy-type').textContent = opp.name;
     document.getElementById('enemy-hp-text').textContent = `HP: ${opp.life}/${opp.maxLife}`;
     document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, (opp.life / opp.maxLife) * 100)}%`;
     document.getElementById('enemy-guts-text').textContent = Math.floor(opp.guts);
     document.getElementById('enemy-guts-bar').style.width = `${opp.guts}%`;
 
-    renderMonsterVisual(document.getElementById('battle-player-icon'), me.name, me.emoji, false);
+    renderMonsterVisual(document.getElementById('battle-player-icon'), me.monsterBaseName, me.emoji, me.isAwakened);
     document.getElementById('battle-player-name').textContent = me.name;
     document.getElementById('player-hp-text').textContent = `${me.life}/${me.maxLife}`;
     document.getElementById('player-hp-bar').style.width = `${Math.max(0, (me.life / me.maxLife) * 100)}%`;
@@ -226,6 +274,8 @@ function renderRealtimeBattleUI(state) {
     document.getElementById('guts-progress-bar').style.width = `${me.guts}%`;
 
     document.getElementById('player-defense-shield').classList.toggle('hidden', !me.isDefending);
+
+    renderRealtimeTeamIcons(state);
 
     const turnIndicator = document.getElementById('realtime-turn-indicator');
     if (state.status === 'active') {
@@ -249,17 +299,57 @@ function renderRealtimeBattleUI(state) {
     }
 }
 
+// -----------------------------------------------------
+// 団体戦：チームアイコン表示（個人戦や、片方1体のみの場合は非表示）
+// -----------------------------------------------------
+function renderRealtimeTeamIcons(state) {
+    const mySlot = REALTIME_BATTLE.mySlot;
+    const oppSlot = REALTIME_BATTLE.oppSlot;
+    const myTeam = state.teams[mySlot];
+    const oppTeam = state.teams[oppSlot];
+    const isTeam = (state.battleType === 'team') || myTeam.units.length > 1 || oppTeam.units.length > 1;
+
+    const playerIcons = document.getElementById('player-team-icons');
+    const enemyIcons = document.getElementById('enemy-team-icons');
+    playerIcons.classList.toggle('hidden', !isTeam);
+    enemyIcons.classList.toggle('hidden', !isTeam);
+    if (!isTeam) return;
+
+    const renderSide = (container, teamObj) => {
+        container.innerHTML = '';
+        teamObj.units.forEach((unit, idx) => {
+            const isFainted = unit.life <= 0;
+            const isActive = idx === teamObj.activeIdx;
+            const icon = document.createElement('div');
+            icon.className = `w-8 h-8 flex items-center justify-center rounded-full text-base border-2 transition-all overflow-hidden ${
+                isFainted ? 'grayscale opacity-30 border-gray-700 bg-black/40' :
+                isActive ? 'border-amber-400 bg-amber-950/60 scale-110' : 'border-gray-600 bg-[#1a120b]'
+            }`;
+            if (isFainted) {
+                icon.textContent = '💀';
+            } else {
+                renderMonsterVisual(icon, unit.monsterBaseName, unit.emoji, unit.isAwakened);
+            }
+            icon.title = unit.name;
+            container.appendChild(icon);
+        });
+    };
+
+    renderSide(playerIcons, myTeam);
+    renderSide(enemyIcons, oppTeam);
+}
+
 function renderRealtimeBattleSkills(state) {
     const container = document.getElementById('battle-skills-container');
     container.innerHTML = '';
 
     const mySlot = REALTIME_BATTLE.mySlot;
-    const me = state.units[mySlot];
+    const me = getRealtimeActiveUnit(state, mySlot);
     const isMyTurn = state.status === 'active' && state.turnOwner === mySlot && !REALTIME_BATTLE.actionInProgress;
     const gutsVal = Math.floor(me.guts);
 
     me.skills.forEach(skKey => {
-        const sk = SKILLS_DB[skKey];
+        const sk = getRealtimeEffectiveSkill(me, skKey);
         if (!sk) return;
         const style = getSkillStyle(sk);
         const rank = getDamageRank(sk.force, sk.type);
@@ -346,6 +436,8 @@ function renderRealtimeBattleItems(state) {
 // 行動実行（技・防御・アイテム共通の同期処理）
 // 行動した側のクライアントが結果を計算し、transactionで書き込む。
 // 相手側はlistenerで結果を受け取るだけで、二重計算は行わない。
+// 団体戦では、行動の結果いずれかの場のユニットが戦闘不能になった場合、
+// この同じtransaction内で次の生存ユニットへの自動交代・全滅判定まで行う。
 // -----------------------------------------------------
 function executeRealtimeSkill(skKey) {
     performRealtimeAction({ kind: 'skill', key: skKey });
@@ -355,6 +447,14 @@ function executeRealtimeDefend() {
 }
 function executeRealtimeItem(itemKey) {
     performRealtimeAction({ kind: 'item', key: itemKey });
+}
+
+// --- チーム内で最初に見つかる生存ユニットのインデックスを返す（いなければ-1） ---
+function findFirstAliveIdx(teamObj) {
+    for (let i = 0; i < teamObj.units.length; i++) {
+        if (teamObj.units[i].life > 0) return i;
+    }
+    return -1;
 }
 
 async function performRealtimeAction(action) {
@@ -378,20 +478,26 @@ async function performRealtimeAction(action) {
             if (!current || current.status !== 'active' || current.turnOwner !== mySlot) return; // abort：既に状況が変わっている
 
             resultLogs = [];
-            const me = current.units[mySlot];
-            const opp = current.units[oppSlot];
+            const myTeam = current.teams[mySlot];
+            const oppTeam = current.teams[oppSlot];
+            const me = myTeam.units[myTeam.activeIdx];
+            const opp = oppTeam.units[oppTeam.activeIdx];
             const myItems = current.items[mySlot];
 
             if (action.kind === 'skill') {
-                const sk = SKILLS_DB[action.key];
-                if (!sk || !me.skills.includes(action.key) || me.guts < sk.cost) return; // abort：無効な行動
+                const rawSk = SKILLS_DB[action.key];
+                if (!rawSk || !me.skills.includes(action.key) || me.guts < rawSk.cost) return; // abort：無効な行動
+                const sk = getRealtimeEffectiveSkill(me, action.key);
                 const mods = getGutsModifiers(me.guts);
                 me.guts -= sk.cost;
                 resultLogs.push(`${me.name} の【${sk.name}】！`);
 
                 if (sk.type === 'pow' || sk.type === 'int') {
                     const isCertain = sk.hitRate === 100;
-                    const hitChance = isCertain ? 100 : Math.max(10, Math.min(99, (sk.hitRate + mods.hitMod) + (me.hit - opp.spd) * 0.5));
+                    let hitChance = isCertain ? 100 : Math.max(10, Math.min(99, (sk.hitRate + mods.hitMod) + (me.hit - opp.spd) * 0.5));
+                    if (me.isShuchuActive && !isCertain) {
+                        hitChance = Math.min(99, hitChance * 1.5);
+                    }
                     const isHit = isCertain || (Math.random() * 100 < hitChance);
 
                     if (isHit) {
@@ -404,6 +510,13 @@ async function performRealtimeAction(action) {
                         const rawDmg = (effectiveAttacker * sk.force * mods.dmgMod) - (defenderStat * 0.35);
                         let damage = Math.floor(Math.max(10, (rawDmg * (0.9 + Math.random() * 0.2)) * defenderGutsDefenseMod));
 
+                        if (me.isSokojikaraActive) {
+                            damage = Math.floor(damage * 1.5);
+                        }
+                        if (me.isShuchuActive) {
+                            damage = Math.floor(damage * 1.2);
+                        }
+
                         const critChance = 0.10 + (me.critBonusTurns > 0 ? 0.25 : 0);
                         const isCrit = Math.random() < critChance;
                         if (isCrit) damage = Math.floor(damage * 1.5);
@@ -413,14 +526,45 @@ async function performRealtimeAction(action) {
                             resultLogs.push(`${opp.name} は防御の構えでダメージを半減した！`);
                         }
 
+                        damage = Math.max(1, Math.floor(damage * MASMON_BATTLE_DAMAGE_MULTIPLIER));
+
                         opp.life = Math.max(0, opp.life - damage);
                         resultLogs.push(isCrit ? `★クリティカル！ ${opp.name} に ${damage} ダメージ！` : `${opp.name} に ${damage} ダメージ！`);
 
-                        if (sk.gutsDown > 0) {
-                            const actualGutsDown = Math.min(opp.guts, sk.gutsDown);
-                            opp.guts = Math.max(0, opp.guts - actualGutsDown);
-                            if (actualGutsDown > 0) resultLogs.push(`相手のガッツを ${actualGutsDown} 奪った！(現在: ${Math.floor(opp.guts)})`);
+                        // 根性・底力の発動判定（ダメージを受けた側）
+                        if (opp.life === 0 && opp.statusEffect === "根性") {
+                            if (Math.random() < 0.50) {
+                                opp.life = 1;
+                                resultLogs.push(`✨ 根性が発動！ ${opp.name} は力尽きず、ライフ 1 で耐え抜いた！`);
+                            }
                         }
+                        if (opp.statusEffect === "底力" && !opp.isSokojikaraFired) {
+                            if (opp.life > 0 && opp.life < opp.maxLife * 0.3) {
+                                opp.isSokojikaraFired = true;
+                                opp.isSokojikaraActive = true;
+                                resultLogs.push(`💪 底力が発動！ ${opp.name} は窮地に陥り、次の技のダメージが 1.5 倍に上昇！`);
+                            }
+                        }
+
+                        let finalGutsDown = sk.gutsDown || 0;
+                        if (me.isGyakujoActive && finalGutsDown > 0) {
+                            finalGutsDown = Math.floor(finalGutsDown * 1.2);
+                        }
+                        if (finalGutsDown > 0) {
+                            const actualGutsDown = Math.min(opp.guts, finalGutsDown);
+                            opp.guts = Math.max(0, opp.guts - actualGutsDown);
+                            if (actualGutsDown > 0) {
+                                resultLogs.push(`相手のガッツを ${actualGutsDown} 奪った！(現在: ${Math.floor(opp.guts)})`);
+                                // 逆上の発動判定（ガッツを奪われた側）
+                                if (opp.statusEffect === "逆上" && !opp.isGyakujoActive && Math.random() < 0.65) {
+                                    opp.isGyakujoActive = true;
+                                    resultLogs.push(`💢 逆上が発動！ ${opp.name} のガッツ回復速度と与えるガッツダウン量が 1.2 倍に上昇！`);
+                                }
+                            }
+                        }
+
+                        me.isSokojikaraActive = false;
+                        me.isShuchuActive = false;
                     } else {
                         resultLogs.push(`しかし攻撃はかわされた！`);
                     }
@@ -458,23 +602,58 @@ async function performRealtimeAction(action) {
                 return; // abort：不明な行動
             }
 
-            // --- 決着判定 ---
+            // --- 戦闘不能判定＆自動交代（団体戦） ---
+            let battleOver = false;
+            const oppOwnerLabel = current.ownerNames ? current.ownerNames[oppSlot] : '相手';
+
             if (opp.life <= 0) {
-                current.status = 'finished';
-                current.winner = mySlot;
-                current.winReason = 'ko';
-                resultLogs.push(`💥 ${opp.name} は戦闘不能になった！${me.name} の勝利！`);
-            } else if (me.life <= 0) {
-                current.status = 'finished';
-                current.winner = oppSlot;
-                current.winReason = 'ko';
+                resultLogs.push(`💥 ${opp.name} は戦闘不能になった！`);
+                const nextIdx = findFirstAliveIdx(oppTeam);
+                if (nextIdx === -1) {
+                    current.status = 'finished';
+                    current.winner = mySlot;
+                    current.winReason = 'ko';
+                    resultLogs.push(`${me.name} の勝利！`);
+                    battleOver = true;
+                } else {
+                    oppTeam.activeIdx = nextIdx;
+                    const newOpp = oppTeam.units[nextIdx];
+                    resultLogs.push(`${oppOwnerLabel} は【${newOpp.name}】を繰り出した！`);
+                }
+            }
+
+            if (!battleOver && me.life <= 0) {
                 resultLogs.push(`💥 ${me.name} は戦闘不能になった…`);
-            } else {
-                // --- ターン交代：次の相手のガッツ回復・クリティカル効果減少・防御解除 ---
-                if (opp.critBonusTurns > 0) opp.critBonusTurns--;
-                opp.isDefending = false;
-                const recovery = Math.floor((opp.gutsSpeed || 14) + 30);
-                opp.guts = Math.min(100, opp.guts + recovery);
+                const nextIdx = findFirstAliveIdx(myTeam);
+                if (nextIdx === -1) {
+                    current.status = 'finished';
+                    current.winner = oppSlot;
+                    current.winReason = 'ko';
+                    battleOver = true;
+                } else {
+                    myTeam.activeIdx = nextIdx;
+                    const newMe = myTeam.units[nextIdx];
+                    resultLogs.push(`【${newMe.name}】を繰り出した！`);
+                }
+            }
+
+            if (!battleOver) {
+                // --- ターン交代：次に行動する相手側（場に出ているユニット）のガッツ回復・状態リセット ---
+                const oppNowActive = oppTeam.units[oppTeam.activeIdx];
+                if (oppNowActive.critBonusTurns > 0) oppNowActive.critBonusTurns--;
+                oppNowActive.isDefending = false;
+                let recovery = Math.floor((oppNowActive.gutsSpeed || 14) + 30);
+                if (oppNowActive.isGyakujoActive) {
+                    recovery = Math.floor(recovery * 1.2);
+                }
+                if (oppNowActive.statusEffect === "闘魂" && me.guts > 70) {
+                    recovery = Math.floor(recovery * 1.5);
+                }
+                oppNowActive.guts = Math.min(100, oppNowActive.guts + recovery);
+                if (oppNowActive.statusEffect === "集中" && oppNowActive.guts > 90 && !oppNowActive.isShuchuActive) {
+                    oppNowActive.isShuchuActive = true;
+                    resultLogs.push(`🎯 ${oppNowActive.name} に集中が発動！次の技の命中率・ダメージが上昇！`);
+                }
                 current.turnOwner = oppSlot;
                 current.turnNumber = (current.turnNumber || 1) + 1;
             }
@@ -590,9 +769,15 @@ function showRealtimeBattleResult(state, isWin, reasonText) {
 
     const mySlot = REALTIME_BATTLE.mySlot;
     const oppSlot = REALTIME_BATTLE.oppSlot;
-    const me = state.units[mySlot];
-    const opp = state.units[oppSlot];
+    const myTeam = state.teams[mySlot];
+    const oppTeam = state.teams[oppSlot];
+    const me = myTeam.units[myTeam.activeIdx];
+    const opp = oppTeam.units[oppTeam.activeIdx];
     const oppOwnerName = state.ownerNames ? state.ownerNames[oppSlot] : '対戦相手';
+    const isTeam = state.battleType === 'team';
+
+    const myNames = myTeam.units.map(u => u.name).join('、');
+    const oppNames = oppTeam.units.map(u => u.name).join('、');
 
     const badge = document.getElementById('masmon-result-badge');
     const title = document.getElementById('masmon-result-title');
@@ -603,18 +788,26 @@ function showRealtimeBattleResult(state, isWin, reasonText) {
         badge.textContent = '🏆';
         title.textContent = 'VICTORY!';
         title.className = 'text-2xl font-black text-amber-500 pixel-font';
-        subtitle.textContent = `【${me.name}】が【${oppOwnerName}】の【${opp.name}】を倒した！${reasonText}`;
+        subtitle.textContent = isTeam
+            ? `【${myNames}】のチームが【${oppOwnerName}】のチームを打ち破った！${reasonText}`
+            : `【${me.name}】が【${oppOwnerName}】の【${opp.name}】を倒した！${reasonText}`;
     } else {
         badge.textContent = '💀';
         title.textContent = 'DEFEAT...';
         title.className = 'text-2xl font-black text-red-500 pixel-font';
-        subtitle.textContent = `【${me.name}】は【${oppOwnerName}】の【${opp.name}】に敗れた…${reasonText}`;
+        subtitle.textContent = isTeam
+            ? `【${myNames}】のチームは【${oppOwnerName}】のチームに敗れた…${reasonText}`
+            : `【${me.name}】は【${oppOwnerName}】の【${opp.name}】に敗れた…${reasonText}`;
     }
 
+    const survivedTeam = isWin ? myTeam : oppTeam;
+    const survivedCount = survivedTeam.units.filter(u => u.life > 0).length;
+
     detail.innerHTML = `
-        <div class="text-xs text-sky-300 font-bold border-b border-sky-800 pb-1 mb-1">リアルタイム対戦結果</div>
-        <div class="flex justify-between text-xs"><span class="text-gray-400">あなたのマスモン:</span><span class="text-white font-bold">${me.name}</span></div>
-        <div class="flex justify-between text-xs"><span class="text-gray-400">対戦相手:</span><span class="text-white font-bold">${oppOwnerName} の ${opp.name}</span></div>
+        <div class="text-xs text-sky-300 font-bold border-b border-sky-800 pb-1 mb-1">リアルタイム${isTeam ? '団体戦' : '対戦'}結果</div>
+        <div class="flex justify-between text-xs"><span class="text-gray-400">あなたの${isTeam ? 'チーム' : 'マスモン'}:</span><span class="text-white font-bold">${myNames}</span></div>
+        <div class="flex justify-between text-xs"><span class="text-gray-400">対戦相手:</span><span class="text-white font-bold">${oppOwnerName} の ${oppNames}</span></div>
+        ${isTeam ? `<div class="flex justify-between text-xs"><span class="text-gray-400">生存数:</span><span class="text-white font-bold">${survivedCount}/${survivedTeam.units.length}</span></div>` : ''}
         <div class="flex justify-between text-xs"><span class="text-gray-400">経過ターン数:</span><span class="text-white font-bold">${state.turnNumber || 1}</span></div>
     `;
 
@@ -662,6 +855,8 @@ function resetRealtimeBattleClientState() {
     document.getElementById('realtime-surrender-btn').classList.add('hidden');
     document.getElementById('realtime-turn-indicator').classList.add('hidden');
     document.getElementById('realtime-disconnect-banner').classList.add('hidden');
+    document.getElementById('player-team-icons').classList.add('hidden');
+    document.getElementById('enemy-team-icons').classList.add('hidden');
     const beginBtn = document.getElementById('realtime-begin-battle-btn');
     if (beginBtn) {
         beginBtn.disabled = false;

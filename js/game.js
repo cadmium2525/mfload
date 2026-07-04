@@ -37,8 +37,8 @@ const GAME_STATE = {
 function renderMonsterVisual(containerEl, name, emoji, isAwakened = false) {
     if (!containerEl) return;
 
-    // 画像ロード前にまず絵文字で即時初期化（残像防止）
-    containerEl.innerHTML = `<span class="text-5xl filter drop-shadow-[0_8px_6px_rgba(0,0,0,0.6)]">${emoji}</span>`;
+    // イラスト読み込みが完了するまでは何も表示しない（絵文字の一瞬表示を防止）
+    containerEl.innerHTML = '';
 
     // 名前のクレンジング (中ボス/伝説の邪神などの修飾子やスペース、(強敵)などを除外してファイル名にする)
     let cleanName = name.replace("中ボス：", "").replace("伝説の邪神：", "").split(" ")[0];
@@ -53,8 +53,9 @@ function renderMonsterVisual(containerEl, name, emoji, isAwakened = false) {
         // 画像が存在する場合はimgタグを挿入
         containerEl.innerHTML = `<img src="${imagePath}" alt="${name}" class="w-full h-full object-contain max-h-24 max-w-24 mx-auto drop-shadow-lg">`;
     };
-    // onerror: 既に絵文字でフォールバック表示済みのため何もしない
-    img.onerror = () => {};
+    img.onerror = () => {
+        console.warn(`[renderMonsterVisual] 画像が見つかりません: ${imagePath}`);
+    };
 }
 
 
@@ -1959,6 +1960,10 @@ function endGame(isClear) {
     const clearBonus = isClear ? 1.5 : 1.0; 
     const finalScore = Math.floor(baseScore * clearBonus);
 
+    // 30F（モスト戦）でのゲームオーバーは「実質到達」として扱い、マスモン登録を許可する
+    const isMostGameOver = !isClear && GAME_STATE.floor === 30 && GAME_STATE.isBossBattle;
+    GAME_STATE.lastGameWasClear = isClear || isMostGameOver;
+
     document.getElementById('result-difficulty').textContent = GAME_STATE.difficulty.toUpperCase();
     document.getElementById('result-final-floor').textContent = `${GAME_STATE.floor - (isClear ? 1 : 0)} / 30`;
     document.getElementById('result-total-actions').textContent = totalAct;
@@ -2034,8 +2039,13 @@ function endGame(isClear) {
         }
 
     } else {
-        const masmonSaveSectionEl = document.getElementById('masmon-save-section');
-        if (masmonSaveSectionEl) masmonSaveSectionEl.classList.add('hidden');
+        if (isMostGameOver && typeof setupMasmonSaveSection === 'function') {
+            // モスト戦（30F）での敗北時も、育て上げたモンスターをマスモンとして登録できるようにする
+            setupMasmonSaveSection();
+        } else {
+            const masmonSaveSectionEl = document.getElementById('masmon-save-section');
+            if (masmonSaveSectionEl) masmonSaveSectionEl.classList.add('hidden');
+        }
 
         resTitle.textContent = "GAME OVER";
         resTitle.className = "text-2xl font-black text-red-500 pixel-font";

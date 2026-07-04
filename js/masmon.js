@@ -38,8 +38,11 @@ function buildMasmonPayload(nickname) {
             gutsSpeed: p.stats.gutsSpeed
         },
         skills: [...p.skills],
+        skillEnhancements: JSON.parse(JSON.stringify(GAME_STATE.skillEnhancements || {})),
+        statusEffect: GAME_STATE.playerStatusEffect || null,
+        isAwakened: !!GAME_STATE.isAwakened,
         difficulty: GAME_STATE.difficulty,
-        floor: GAME_STATE.floor - 1,
+        floor: GAME_STATE.floor - (GAME_STATE.lastGameWasClear ? 1 : 0),
         ownerId: getMyPlayerId(),
         ownerName: GAME_STATE.playerName,
         createdAt: Date.now()
@@ -185,6 +188,7 @@ async function handleSaveMasmon() {
 function showMasmonList() {
     changeScreen('screen-masmon-list');
     renderMasmonList();
+    if (typeof renderTransferCodeDisplay === 'function') renderTransferCodeDisplay();
 }
 
 async function renderMasmonList() {
@@ -219,7 +223,7 @@ async function renderMasmonList() {
 
         const iconWrap = document.createElement('div');
         iconWrap.className = 'w-10 h-10 flex items-center justify-center text-2xl flex-shrink-0 bg-[#1a120b] rounded-full border border-purple-900/40';
-        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, false);
+        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened);
 
         const info = document.createElement('div');
         info.className = 'flex-1 min-w-0';
@@ -241,7 +245,7 @@ async function renderMasmonList() {
 
         const battleBtn = document.createElement('button');
         battleBtn.className = 'text-[10px] bg-purple-800 hover:bg-purple-700 border border-purple-600 text-white px-2 py-1 rounded-lg transition-all active:scale-95 font-bold';
-        battleBtn.textContent = '⚔️ CPU対戦';
+        battleBtn.textContent = '⚔️ 対戦';
         battleBtn.onclick = () => openItemSelectForSolo(m);
 
         btnGroup.appendChild(battleBtn);
