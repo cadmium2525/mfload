@@ -47,7 +47,10 @@ const GAME_STATE = {
 };
 
 // --- モンスター画像読み込みヘルパー関数 ---
-function renderMonsterVisual(containerEl, name, emoji, isAwakened = false) {
+// isPartner: プレイヤー側（パートナー/マイマスモン）のモンスターを描画する場合はtrue。
+//   プラントは敵モンスターと同じ画像だと向きが同じになってしまうため、
+//   パートナー側表示時は専用の「Rプラント.png」（反転版）を使用する。
+function renderMonsterVisual(containerEl, name, emoji, isAwakened = false, isPartner = false) {
     if (!containerEl) return;
 
     // イラスト読み込みが完了するまでは画像を表示しない（絵文字の一瞬表示を防止）。
@@ -59,6 +62,11 @@ function renderMonsterVisual(containerEl, name, emoji, isAwakened = false) {
     // 名前のクレンジング (中ボス/伝説の邪神などの修飾子やスペース、(強敵)などを除外してファイル名にする)
     let cleanName = name.replace("中ボス：", "").replace("伝説の邪神：", "").split(" ")[0];
     cleanName = cleanName.replace(/\s*\(強敵\)\s*/g, "");
+
+    // パートナー（プレイヤー側）のプラントは、敵と向きが被らないよう専用画像を使用
+    if (isPartner && cleanName === "プラント" && !isAwakened) {
+        cleanName = "Rプラント";
+    }
 
     const prefix = isAwakened ? "覚醒" : "";
     const imagePath = `images/${prefix}${cleanName}.png`;
@@ -219,7 +227,7 @@ function renderPartnerSelection() {
         // 画像または絵文字を動的に設定するためのコンテナを作成
         const visualEl = document.createElement('div');
         visualEl.className = 'w-12 h-12 flex items-center justify-center mb-1 text-3xl';
-        renderMonsterVisual(visualEl, m.name, m.emoji, false);
+        renderMonsterVisual(visualEl, m.name, m.emoji, false, true);
         
         const nameEl = document.createElement('span');
         nameEl.className = 'text-[11px] font-bold';

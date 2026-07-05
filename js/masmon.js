@@ -228,7 +228,7 @@ async function renderMasmonList() {
 
         const iconWrap = document.createElement('div');
         iconWrap.className = 'w-10 h-10 flex items-center justify-center text-2xl flex-shrink-0 bg-[#1a120b] rounded-full border border-purple-900/40';
-        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened);
+        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened, true);
 
         const info = document.createElement('div');
         info.className = 'flex-1 min-w-0';
@@ -288,7 +288,7 @@ async function deleteMasmon(key) {
 function openMasmonDetailModal(m) {
     const iconWrap = document.getElementById('masmon-detail-icon');
     iconWrap.innerHTML = '';
-    renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened);
+    renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened, true);
 
     document.getElementById('masmon-detail-name').textContent = m.name;
     document.getElementById('masmon-detail-base').textContent = `（${m.monsterBaseName}）`;

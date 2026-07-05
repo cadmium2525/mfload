@@ -179,7 +179,8 @@ async function loadRanking(difficulty, monsterFilter = 'all') {
             // モンスターアイコン: PNG画像を試みて失敗時は絵文字でフォールバック
             const mName = entry.monster || '';
             const mEmoji = monsterEmojiMap[mName] || '🐾';
-            const monsterIcon = '<img src="images/' + mName + '.png"'
+            const mImageName = (mName === 'プラント') ? 'Rプラント' : mName;
+            const monsterIcon = '<img src="images/' + mImageName + '.png"'
                 + ' alt="' + mName + '"'
                 + ' class="w-8 h-8 object-contain flex-shrink-0 rounded-full bg-[#1a120b] border border-amber-900/40 p-0.5"'
                 + ' onerror="this.outerHTML=\'<span class=&quot;text-xl w-8 h-8 flex items-center justify-center flex-shrink-0&quot;>' + mEmoji + '</span>\'"'

@@ -285,7 +285,7 @@ function renderRealtimeBattleUI(state) {
     document.getElementById('enemy-guts-text').textContent = Math.floor(opp.guts);
     document.getElementById('enemy-guts-bar').style.width = `${opp.guts}%`;
 
-    renderMonsterVisual(document.getElementById('battle-player-icon'), me.monsterBaseName, me.emoji, me.isAwakened);
+    renderMonsterVisual(document.getElementById('battle-player-icon'), me.monsterBaseName, me.emoji, me.isAwakened, true);
     document.getElementById('battle-player-name').textContent = me.name;
     document.getElementById('player-hp-text').textContent = `${me.life}/${me.maxLife}`;
     document.getElementById('player-hp-bar').style.width = `${Math.max(0, (me.life / me.maxLife) * 100)}%`;
@@ -469,7 +469,7 @@ function renderRealtimeTeamIcons(state) {
     enemyIcons.classList.toggle('hidden', !isTeam);
     if (!isTeam) return;
 
-    const renderSide = (container, teamObj) => {
+    const renderSide = (container, teamObj, isPartnerSide) => {
         container.innerHTML = '';
         teamObj.units.forEach((unit, idx) => {
             const isFainted = unit.life <= 0;
@@ -482,15 +482,15 @@ function renderRealtimeTeamIcons(state) {
             if (isFainted) {
                 icon.textContent = '💀';
             } else {
-                renderMonsterVisual(icon, unit.monsterBaseName, unit.emoji, unit.isAwakened);
+                renderMonsterVisual(icon, unit.monsterBaseName, unit.emoji, unit.isAwakened, isPartnerSide);
             }
             icon.title = unit.name;
             container.appendChild(icon);
         });
     };
 
-    renderSide(playerIcons, myTeam);
-    renderSide(enemyIcons, oppTeam);
+    renderSide(playerIcons, myTeam, true);
+    renderSide(enemyIcons, oppTeam, false);
 }
 
 function renderRealtimeBattleSkills(state) {

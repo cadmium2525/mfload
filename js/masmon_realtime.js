@@ -71,7 +71,7 @@ function showRealtimeKeywordScreen(team, itemLoadout, battleType) {
         row.className = 'flex items-center space-x-2';
         const iconWrap = document.createElement('div');
         iconWrap.className = 'w-9 h-9 flex items-center justify-center text-xl flex-shrink-0 bg-[#1a120b] rounded-full border border-sky-900/40';
-        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened);
+        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened, true);
         const info = document.createElement('div');
         info.className = 'flex-1 min-w-0';
         info.innerHTML = `<div class="text-xs font-bold text-sky-200 truncate">${m.name}<span class="text-[9px] text-gray-400 ml-1">（${m.monsterBaseName}）</span></div>`;

@@ -293,7 +293,7 @@ function startMasmonBattleCommon(floorText) {
     renderMonsterVisual(document.getElementById('battle-enemy-icon'), e.monsterBaseName, e.emoji, e.isAwakened);
     document.getElementById('battle-enemy-type').textContent = e.name;
 
-    renderMonsterVisual(document.getElementById('battle-player-icon'), p.monsterBaseName, p.emoji, p.isAwakened);
+    renderMonsterVisual(document.getElementById('battle-player-icon'), p.monsterBaseName, p.emoji, p.isAwakened, true);
     document.getElementById('battle-player-name').textContent = p.name;
 
     const log = document.getElementById('battle-log');
@@ -316,7 +316,7 @@ function startMasmonBattleCommon(floorText) {
 function renderTeamIcons() {
     if (MASMON_BATTLE_STATE.mode !== 'cpu_team') return;
 
-    const renderSide = (containerId, team, activeIdx) => {
+    const renderSide = (containerId, team, activeIdx, isPartnerSide) => {
         const container = document.getElementById(containerId);
         if (!container) return;
         container.innerHTML = '';
@@ -331,15 +331,15 @@ function renderTeamIcons() {
             if (isFainted) {
                 icon.textContent = '💀';
             } else {
-                renderMonsterVisual(icon, unit.monsterBaseName, unit.emoji, unit.isAwakened);
+                renderMonsterVisual(icon, unit.monsterBaseName, unit.emoji, unit.isAwakened, isPartnerSide);
             }
             icon.title = unit.name;
             container.appendChild(icon);
         });
     };
 
-    renderSide('player-team-icons', MASMON_BATTLE_STATE.playerTeam, MASMON_BATTLE_STATE.playerActiveIdx);
-    renderSide('enemy-team-icons', MASMON_BATTLE_STATE.enemyTeam, MASMON_BATTLE_STATE.enemyActiveIdx);
+    renderSide('player-team-icons', MASMON_BATTLE_STATE.playerTeam, MASMON_BATTLE_STATE.playerActiveIdx, true);
+    renderSide('enemy-team-icons', MASMON_BATTLE_STATE.enemyTeam, MASMON_BATTLE_STATE.enemyActiveIdx, false);
 }
 
 // -----------------------------------------------------
@@ -381,7 +381,7 @@ function checkFaintAndProceed(side) {
     addLog(`${sideLabel}は【${newUnit.name}】を繰り出した！`);
 
     if (side === 'player') {
-        renderMonsterVisual(document.getElementById('battle-player-icon'), newUnit.monsterBaseName, newUnit.emoji, newUnit.isAwakened);
+        renderMonsterVisual(document.getElementById('battle-player-icon'), newUnit.monsterBaseName, newUnit.emoji, newUnit.isAwakened, true);
         document.getElementById('battle-player-name').textContent = newUnit.name;
         renderMasmonBattleSkills();
     } else {
@@ -765,7 +765,7 @@ function executeMasmonSwitch(targetIdx) {
     addLog(`${prev.name} を引っ込め、【${target.name}】を繰り出した！`);
     showEffect('🔄 交代！ 🔄');
 
-    renderMonsterVisual(document.getElementById('battle-player-icon'), target.monsterBaseName, target.emoji, target.isAwakened);
+    renderMonsterVisual(document.getElementById('battle-player-icon'), target.monsterBaseName, target.emoji, target.isAwakened, true);
     document.getElementById('battle-player-name').textContent = target.name;
     renderTeamIcons();
     updateMasmonBattleStatsUI();

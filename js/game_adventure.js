@@ -28,7 +28,7 @@ function updateAdventureUI() {
 
     const p = GAME_STATE.player;
     const advIconEl = document.getElementById('adventure-monster-icon');
-    renderMonsterVisual(advIconEl, p.name, p.emoji, GAME_STATE.isAwakened);
+    renderMonsterVisual(advIconEl, p.name, p.emoji, GAME_STATE.isAwakened, true);
     document.getElementById('adventure-monster-name').textContent = p.name;
     
     document.getElementById('adv-stat-life').textContent = `${p.stats.life}/${p.stats.maxLife}`;

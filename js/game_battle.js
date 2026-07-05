@@ -104,7 +104,7 @@ function setupBattle(isBoss = false) {
     document.getElementById('battle-enemy-type').textContent = GAME_STATE.enemy.name;
     
     const playerIconEl = document.getElementById('battle-player-icon');
-    renderMonsterVisual(playerIconEl, GAME_STATE.player.name, GAME_STATE.player.emoji, GAME_STATE.isAwakened);
+    renderMonsterVisual(playerIconEl, GAME_STATE.player.name, GAME_STATE.player.emoji, GAME_STATE.isAwakened, true);
     document.getElementById('battle-player-name').textContent = GAME_STATE.player.name;
 
     const log = document.getElementById('battle-log');

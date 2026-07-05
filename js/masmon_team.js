@@ -56,7 +56,7 @@ function renderMasmonTeamSelectList() {
 
         const iconWrap = document.createElement('div');
         iconWrap.className = 'w-10 h-10 flex items-center justify-center text-2xl flex-shrink-0 bg-[#1a120b] rounded-full border border-purple-900/40 relative';
-        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened);
+        renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened, true);
         if (isSelected) {
             const badge = document.createElement('span');
             badge.className = 'absolute -top-1 -right-1 w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center';
