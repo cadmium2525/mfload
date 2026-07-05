@@ -27,7 +27,9 @@ function setupBattle(isBoss = false) {
     GAME_STATE.player.confuseTurns = 0;
     GAME_STATE.player.forceBoost = 0;
     GAME_STATE.player.shieldValue = 0;
+    GAME_STATE.player.shieldUsedThisBattle = false;
     GAME_STATE.player.dodgeNextGuaranteed = false;
+    GAME_STATE.player.permaForceBoostActive = false;
 
     let enemyTemplate;
     if (isBoss) {
@@ -72,7 +74,9 @@ function setupBattle(isBoss = false) {
         confuseTurns: 0,
         forceBoost: 0,
         shieldValue: 0,
+        shieldUsedThisBattle: false,
         dodgeNextGuaranteed: false,
+        permaForceBoostActive: false,
         stats: {
             maxLife: Math.floor(enemyTemplate.maxLife * hpScale),
             life: Math.floor(enemyTemplate.maxLife * hpScale),
@@ -480,7 +484,10 @@ function executePlayerSkill(skKey) {
                     damage = Math.floor(damage * 1.2);
                     extraDmgMsg += " (集中×1.2)";
                 }
-
+                if (p.permaForceBoostActive) {
+                    damage = Math.floor(damage * 1.2);
+                    extraDmgMsg += " (天河天翔×1.2)";
+                }
                 let isCrit = Math.random() < 0.10;
                 if (isCrit) {
                     damage = Math.floor(damage * 1.5);
@@ -685,6 +692,9 @@ function executeEnemyTurn() {
                         if (GAME_STATE.isDefending) {
                             damage = Math.floor(damage / 2);
                             addLog(`【防御効果】攻撃を盾で受け流し、ダメージを半減した！`);
+                        }
+                        if (e.permaForceBoostActive) {
+                            damage = Math.floor(damage * 1.2);
                         }
 
                         // 九重神眼等のシールドによる被ダメージ吸収

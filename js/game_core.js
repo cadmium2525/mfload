@@ -315,7 +315,9 @@ function startGame() {
         confuseTurns: 0,  // サケビ声等で受ける「混乱」の残行動回数
         forceBoost: 0,    // オーロラゲート等で得る「次の技威力アップ」倍率
         shieldValue: 0,   // 九重神眼等で得るシールド（被ダメージ吸収）の残量
-        dodgeNextGuaranteed: false // 陽炎等で得る「次の敵攻撃を確実に回避」フラグ
+        shieldUsedThisBattle: false, // 九重神眼等の「バトル中1回限り」シールド技を使用済みか
+        dodgeNextGuaranteed: false, // 陽炎等で得る「次の敵攻撃を確実に回避」フラグ
+        permaForceBoostActive: false // 天河天翔等で得る「今後のダメージ永続アップ」フラグ
     };
 
     if (GAME_STATE.inheritedSkill && !GAME_STATE.player.skills.includes(GAME_STATE.inheritedSkill)) {

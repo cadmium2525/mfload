@@ -101,7 +101,7 @@ const SKILLS_DB = {
     cho_kitsunebi: { name: '超狐火', cost: 32, type: 'int', hitRate: 88, force: 1.4, gutsDown: 15, effect: null, desc: '巨大化させた狐火をぶつける高命中技。相手GUTS-15' },
     yuuwaku: { name: 'ゆうわく', cost: 25, type: 'int', hitRate: 85, force: 0.85, gutsDown: 40, effect: null, desc: '妖しい魅力で相手の闘志を大きく削ぐ。相手GUTS-40' },
     kokonoe_shingan: { name: '九重神眼', cost: 40, type: 'int', hitRate: 75, force: 1.8, gutsDown: 15, effect: 'shield_self_20pct', desc: '九尾の瞳で相手を見据えて攻撃する。相手GUTS-15。さらに命中した場合、自身の最大ライフの20%に相当するシールドを展開する' },
-    tenga_tensho: { name: '天河天翔', cost: 55, type: 'int', hitRate: 60, force: 2.6, gutsDown: 20, effect: 'next_force_up_20', desc: '天空を駆け巡る霊力の奔流を叩き込む最大の切り札。相手GUTS-20。さらに命中した場合、自身が次に繰り出す技の威力が20%アップする' },
+    tenga_tensho: { name: '天河天翔', cost: 55, type: 'int', hitRate: 60, force: 2.6, gutsDown: 20, effect: 'perma_dmg_up_20', desc: '天空を駆け巡る霊力の奔流を叩き込む最大の切り札。相手GUTS-20。さらに命中した場合、自身が今後与えるダメージが永続的に20%アップする' },
 
     // --- 敵・ボス共用 ---
     boss_bite: { name: 'かみつき', cost: 20, type: 'pow', hitRate: 75, force: 1.2, gutsDown: 10, effect: null, desc: '鋭い牙でガッツを奪う攻撃' },
@@ -194,17 +194,26 @@ function applySkillOnHitEffect(caster, target, sk) {
     } else if (sk.effect === 'next_force_up') {
         caster.forceBoost = 0.5;
         logs.push(`✨ ${caster.name} の次の技の威力が50%アップした！`);
-    } else if (sk.effect === 'next_force_up_20') {
-        caster.forceBoost = 0.2;
-        logs.push(`✨ ${caster.name} の次の技の威力が20%アップした！`);
+    } else if (sk.effect === 'perma_dmg_up_20') {
+        if (caster.permaForceBoostActive) {
+            logs.push(`（${caster.name} はすでに天河天翔の効果を得ているため、追加のダメージアップは発生しなかった）`);
+        } else {
+            caster.permaForceBoostActive = true;
+            logs.push(`✨ ${caster.name} の全身に霊力が満ち、今後与えるダメージが永続的に1.2倍になった！`);
+        }
     } else if (sk.effect === 'guaranteed_dodge_next') {
         caster.dodgeNextGuaranteed = true;
         logs.push(`🌫️ ${caster.name} は陽炎に包まれ、次の敵の攻撃を確実に回避する構えを取った！`);
     } else if (sk.effect === 'shield_self_20pct') {
-        // ライフ構造の違い（stats.maxLife か maxLife か）を吸収して両対応させる
-        const maxLifeVal = caster.stats ? caster.stats.maxLife : caster.maxLife;
-        caster.shieldValue = Math.floor(maxLifeVal * 0.2);
-        logs.push(`🛡️ ${caster.name} は自身の最大ライフの20%（${caster.shieldValue}）に相当するシールドを展開した！`);
+        if (caster.shieldUsedThisBattle) {
+            logs.push(`（${caster.name} の九重神眼はすでに使用済みのため、シールドは展開されなかった）`);
+        } else {
+            // ライフ構造の違い（stats.maxLife か maxLife か）を吸収して両対応させる
+            const maxLifeVal = caster.stats ? caster.stats.maxLife : caster.maxLife;
+            caster.shieldValue = Math.floor(maxLifeVal * 0.2);
+            caster.shieldUsedThisBattle = true;
+            logs.push(`🛡️ ${caster.name} は自身の最大ライフの20%（${caster.shieldValue}）に相当するシールドを展開した！（このバトル中は再展開不可）`);
+        }
     }
     return logs;
 }

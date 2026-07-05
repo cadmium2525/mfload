@@ -66,7 +66,9 @@ function convertMasmonToBattleUnit(masmonData) {
         confuseTurns: 0,  // サケビ声等で受ける「混乱」の残行動回数
         forceBoost: 0,    // オーロラゲート等で得る「次の技威力アップ」倍率
         shieldValue: 0,   // 九重神眼等で得るシールド（被ダメージ吸収）の残量
+        shieldUsedThisBattle: false, // 九重神眼等の「バトル中1回限り」シールド技を使用済みか
         dodgeNextGuaranteed: false, // 陽炎等で得る「次の敵攻撃を確実に回避」フラグ
+        permaForceBoostActive: false, // 天河天翔等で得る「今後のダメージ永続アップ」フラグ
         stats: {
             maxLife: masmonData.stats.maxLife,
             life: masmonData.stats.maxLife,
@@ -938,6 +940,10 @@ function executeMasmonPlayerSkill(skKey) {
                     damage = Math.floor(damage * 1.2);
                     extraDmgMsg += " (集中×1.2)";
                 }
+                if (p.permaForceBoostActive) {
+                    damage = Math.floor(damage * 1.2);
+                    extraDmgMsg += " (天河天翔×1.2)";
+                }
 
                 const critChance = 0.10 + (p.critBonusTurns > 0 ? 0.25 : 0);
                 let isCrit = Math.random() < critChance;
@@ -1184,6 +1190,9 @@ function executeMasmonEnemyTurn() {
                             damage = Math.floor(damage * 1.5);
                         }
                         if (e.isShuchuActive) {
+                            damage = Math.floor(damage * 1.2);
+                        }
+                        if (e.permaForceBoostActive) {
                             damage = Math.floor(damage * 1.2);
                         }
 
