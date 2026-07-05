@@ -1,6 +1,12 @@
 // =====================================================
 // マスモンバトル（対人マスモンデータを用いたCPU対戦）機能
 // フェーズ3: 個人戦（1vs1）＋ 団体戦（3vs3）＋ 対戦アイテム3種 対応
+//
+// バトル仕様はリアルタイム対戦（masmon_realtime_battle.js）と統一している：
+//   ・1回の行動（技 or 防御 or アイテム）で即座に相手のターンへ移る
+//     （育成中バトルのような「攻撃終了」「防御して終了」ボタンは無し）
+//   ・防御は技一覧の中の1コマンドとして選択する
+//     （被ダメージ軽減のみ。ガッツ回復量の減少ペナルティは無い）
 // =====================================================
 
 // 現在アクティブなバトルの種別を管理 ('adventure' | 'masmon')
@@ -32,7 +38,6 @@ const MASMON_BATTLE_STATE = {
     isPlayerTurnActive: true,
     turn: 1,
     isDefending: false,
-    halfRecoveryNextTurn: false,
     usedSkillsThisTurn: {},
     battleResult: null,     // 'win' | 'lose'
     opponentOwnerName: '',
@@ -247,11 +252,14 @@ function startMasmonBattleCommon(floorText) {
     MASMON_BATTLE_STATE.isBattleEnd = false;
     MASMON_BATTLE_STATE.turn = 1;
     MASMON_BATTLE_STATE.isDefending = false;
-    MASMON_BATTLE_STATE.halfRecoveryNextTurn = false;
     MASMON_BATTLE_STATE.usedSkillsThisTurn = {};
     MASMON_BATTLE_STATE.battleResult = null;
 
     ACTIVE_BATTLE_MODE = 'masmon';
+
+    // PvP（リアルタイム対戦）と同じ操作仕様にするため、育成中バトル用の
+    // 「攻撃終了」「防御して終了」ボタンは非表示にする（防御は技一覧に統合）
+    document.getElementById('battle-endturn-controls').classList.add('hidden');
 
     document.getElementById('battle-floor-indicator').textContent = floorText;
     document.getElementById('battle-turn-counter').textContent = MASMON_BATTLE_STATE.turn;
@@ -352,7 +360,6 @@ function checkFaintAndProceed(side) {
         MASMON_BATTLE_STATE.enemyActiveIdx = nextIdx;
     }
     MASMON_BATTLE_STATE.isDefending = false;
-    MASMON_BATTLE_STATE.halfRecoveryNextTurn = false;
 
     const newUnit = team[nextIdx];
     const sideLabel = side === 'player' ? 'あなた' : (MASMON_BATTLE_STATE.opponentOwnerName || '相手');
@@ -381,10 +388,6 @@ function startMasmonPlayerTurn(isFirstTurn = false) {
     MASMON_BATTLE_STATE.isPlayerTurnActive = true;
     MASMON_BATTLE_STATE.usedSkillsThisTurn = {};
 
-    document.getElementById('end-turn-btn').disabled = false;
-    document.getElementById('end-turn-btn').classList.remove('opacity-50', 'pointer-events-none');
-    document.getElementById('end-turn-defend-btn').disabled = false;
-    document.getElementById('end-turn-defend-btn').classList.remove('opacity-50', 'pointer-events-none');
     document.getElementById('player-defense-shield').classList.add('hidden');
 
     const p = getPlayerActive();
@@ -403,14 +406,7 @@ function startMasmonPlayerTurn(isFirstTurn = false) {
         if (p.statusEffect === "闘魂" && e && e.guts > 70) {
             recovery = Math.floor(recovery * 1.5);
         }
-        if (MASMON_BATTLE_STATE.halfRecoveryNextTurn) {
-            recovery = Math.floor(recovery / 2);
-            addLog(`--- あなたのターン (防御ペナルティ) ---`);
-            addLog(`防御姿勢の反動により、ガッツ回復量が半減した！`);
-            MASMON_BATTLE_STATE.halfRecoveryNextTurn = false;
-        } else {
-            addLog(`--- あなたのターン ---`);
-        }
+        addLog(`--- あなたのターン ---`);
         p.guts = Math.min(100, p.guts + recovery);
         addLog(`ガッツが ${recovery} 回復した！(現在: ${Math.floor(p.guts)})`);
         showEffect('🔥 YOUR TURN 🔥');
@@ -428,10 +424,6 @@ function startMasmonPlayerTurn(isFirstTurn = false) {
         showEffect('❓ 混乱... ❓');
         MASMON_BATTLE_STATE.isPlayerTurnActive = false;
         toggleMasmonSkillButtons(false);
-        document.getElementById('end-turn-btn').disabled = true;
-        document.getElementById('end-turn-btn').classList.add('opacity-50', 'pointer-events-none');
-        document.getElementById('end-turn-defend-btn').disabled = true;
-        document.getElementById('end-turn-defend-btn').classList.add('opacity-50', 'pointer-events-none');
         setTimeout(() => {
             executeMasmonEnemyTurn();
         }, 1000);
@@ -672,6 +664,100 @@ function renderMasmonBattleSkills() {
         `;
         container.appendChild(btn);
     });
+
+    // --- 防御コマンド（技一覧に統合。被ダメ軽減のみ、ガッツ回復量の減は無し＝PvP仕様） ---
+    const defendBtn = document.createElement('button');
+    defendBtn.className = `text-left p-2 rounded border transition-all active:scale-95 flex flex-col justify-between bg-blue-950/40 border-blue-700 text-blue-200`;
+    defendBtn.onclick = () => executeMasmonDefend();
+    defendBtn.innerHTML = `
+        <div class="flex justify-between items-center w-full">
+            <span class="font-bold text-xs">🛡️ 防御 <span class="ml-1 text-[10px] text-blue-300 bg-[#1a120b]/10 px-1 py-0.2 rounded">被ダメ半減</span></span>
+            <span class="text-[9px] font-bold">G:0</span>
+        </div>
+        <div class="flex justify-between items-center mt-0.5 w-full">
+            <div class="text-[8px] opacity-85 line-clamp-1 flex-1">次の相手の攻撃ダメージを半減（ガッツ回復ペナルティ無し）</div>
+        </div>
+    `;
+    container.appendChild(defendBtn);
+
+    // --- 交代コマンド（団体戦のみ。ライフが残っている控えのマスモンと入れ替える。1ターン消費） ---
+    const switchCandidates = getMasmonSwitchCandidates();
+    if (switchCandidates.length > 0) {
+        const switchBtn = document.createElement('button');
+        switchBtn.className = `text-left p-2 rounded border transition-all active:scale-95 flex flex-col justify-between bg-emerald-950/40 border-emerald-700 text-emerald-200`;
+        switchBtn.onclick = () => openMasmonSwitchMenu();
+        switchBtn.innerHTML = `
+            <div class="flex justify-between items-center w-full">
+                <span class="font-bold text-xs">🔄 交代 <span class="ml-1 text-[10px] text-emerald-300 bg-[#1a120b]/10 px-1 py-0.2 rounded">1ターン消費</span></span>
+                <span class="text-[9px] font-bold">G:0</span>
+            </div>
+            <div class="flex justify-between items-center mt-0.5 w-full">
+                <div class="text-[8px] opacity-85 line-clamp-1 flex-1">控えのマスモンと交代する（ライフが残っている仲間のみ）</div>
+            </div>
+        `;
+        container.appendChild(switchBtn);
+    }
+}
+
+// --- 交代候補（団体戦・現在の場に出ていない、ライフが残っている控えのマスモン）の取得 ---
+function getMasmonSwitchCandidates() {
+    if (MASMON_BATTLE_STATE.mode !== 'cpu_team') return [];
+    return MASMON_BATTLE_STATE.playerTeam
+        .map((unit, idx) => ({ idx, unit }))
+        .filter(({ idx, unit }) => idx !== MASMON_BATTLE_STATE.playerActiveIdx && unit.stats.life > 0);
+}
+
+// --- 交代先選択メニューを技一覧エリアに一時的に表示する ---
+function openMasmonSwitchMenu() {
+    if (MASMON_BATTLE_STATE.isBattleEnd || !MASMON_BATTLE_STATE.isPlayerTurnActive) return;
+    const candidates = getMasmonSwitchCandidates();
+    if (candidates.length === 0) return;
+
+    const container = document.getElementById('battle-skills-container');
+    container.innerHTML = '';
+
+    candidates.forEach(({ idx, unit }) => {
+        const lifePct = Math.max(0, Math.floor((unit.stats.life / unit.stats.maxLife) * 100));
+        const btn = document.createElement('button');
+        btn.className = `text-left p-2 rounded border transition-all active:scale-95 flex flex-col justify-between bg-emerald-950/40 border-emerald-700 text-emerald-200`;
+        btn.onclick = () => executeMasmonSwitch(idx);
+        btn.innerHTML = `
+            <div class="flex justify-between items-center w-full">
+                <span class="font-bold text-xs">${unit.name}</span>
+                <span class="text-[9px] font-bold">HP ${unit.stats.life}/${unit.stats.maxLife} (${lifePct}%)</span>
+            </div>
+        `;
+        container.appendChild(btn);
+    });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = `text-left p-2 rounded border transition-all active:scale-95 flex items-center justify-center bg-[#1a120b] border-gray-600 text-gray-300 col-span-2`;
+    cancelBtn.onclick = () => renderMasmonBattleSkills();
+    cancelBtn.innerHTML = `<span class="font-bold text-xs">↩️ もどる</span>`;
+    container.appendChild(cancelBtn);
+}
+
+// --- 交代実行（1ターン消費。ライフが残っている控えのマスモンと入れ替えて相手ターンへ移る） ---
+function executeMasmonSwitch(targetIdx) {
+    if (MASMON_BATTLE_STATE.isBattleEnd || !MASMON_BATTLE_STATE.isPlayerTurnActive) return;
+    const team = MASMON_BATTLE_STATE.playerTeam;
+    const target = team[targetIdx];
+    if (!target || target.stats.life <= 0 || targetIdx === MASMON_BATTLE_STATE.playerActiveIdx) return;
+
+    const prev = getPlayerActive();
+    MASMON_BATTLE_STATE.playerActiveIdx = targetIdx;
+    MASMON_BATTLE_STATE.isDefending = false;
+
+    addLog(`${prev.name} を引っ込め、【${target.name}】を繰り出した！`);
+    showEffect('🔄 交代！ 🔄');
+
+    renderMonsterVisual(document.getElementById('battle-player-icon'), target.monsterBaseName, target.emoji, target.isAwakened);
+    document.getElementById('battle-player-name').textContent = target.name;
+    renderTeamIcons();
+    updateMasmonBattleStatsUI();
+    renderMasmonBattleSkills();
+
+    proceedToMasmonEnemyTurn();
 }
 
 // -----------------------------------------------------
@@ -785,6 +871,8 @@ function useMasmonItem(itemKey) {
         const ended = checkFaintAndProceed('player');
         if (ended) return;
     }
+
+    proceedToMasmonEnemyTurn();
 }
 
 function executeMasmonPlayerSkill(skKey) {
@@ -893,45 +981,42 @@ function executeMasmonPlayerSkill(skKey) {
         }
 
         updateMasmonBattleStatsUI();
-        checkFaintAndProceed('enemy');
+        if (checkFaintAndProceed('enemy')) return;
+        proceedToMasmonEnemyTurn();
     }, 300);
 }
 
 // --- ターン終了ボタンのモード振り分けルーター ---
+// （マスモンCPU対戦・リアルタイム対戦は、いずれもPvP仕様＝1行動で即ターン交代のため
+//   このボタン自体が非表示になっており、育成中バトルからのみ呼び出される）
 function handleEndTurnClick(defendMode) {
-    if (ACTIVE_BATTLE_MODE === 'masmon') {
-        endMasmonPlayerTurn(defendMode);
-    } else {
+    if (ACTIVE_BATTLE_MODE === 'adventure') {
         endPlayerTurn(defendMode);
     }
 }
 
-function endMasmonPlayerTurn(defendMode = false) {
+// --- 技・防御・アイテムいずれかの行動が終わったら、即座に相手のターンへ移る（PvP仕様） ---
+function proceedToMasmonEnemyTurn() {
     if (MASMON_BATTLE_STATE.isBattleEnd || !MASMON_BATTLE_STATE.isPlayerTurnActive) return;
     MASMON_BATTLE_STATE.isPlayerTurnActive = false;
-
-    if (defendMode) {
-        MASMON_BATTLE_STATE.isDefending = true;
-        MASMON_BATTLE_STATE.halfRecoveryNextTurn = true;
-        document.getElementById('player-defense-shield').classList.remove('hidden');
-        addLog(`${getPlayerActive().name} は身を守るため防御姿勢をとった！`);
-        showEffect('🛡️ DEFENSE 🛡️');
-    } else {
-        MASMON_BATTLE_STATE.isDefending = false;
-        MASMON_BATTLE_STATE.halfRecoveryNextTurn = false;
-    }
-
-    updateMasmonBattleStatsUI();
     toggleMasmonSkillButtons(false);
-
-    document.getElementById('end-turn-btn').disabled = true;
-    document.getElementById('end-turn-btn').classList.add('opacity-50', 'pointer-events-none');
-    document.getElementById('end-turn-defend-btn').disabled = true;
-    document.getElementById('end-turn-defend-btn').classList.add('opacity-50', 'pointer-events-none');
 
     setTimeout(() => {
         executeMasmonEnemyTurn();
     }, 600);
+}
+
+// --- 防御コマンド（技一覧内から選択。被ダメ半減のみで、ガッツ回復ペナルティは無い） ---
+function executeMasmonDefend() {
+    if (MASMON_BATTLE_STATE.isBattleEnd || !MASMON_BATTLE_STATE.isPlayerTurnActive) return;
+
+    MASMON_BATTLE_STATE.isDefending = true;
+    document.getElementById('player-defense-shield').classList.remove('hidden');
+    addLog(`${getPlayerActive().name} は身を守るため防御の構えを取った！（被ダメ半減／ガッツ回復ペナルティ無し）`);
+    showEffect('🛡️ DEFENSE 🛡️');
+    updateMasmonBattleStatsUI();
+
+    proceedToMasmonEnemyTurn();
 }
 
 // --- 敵CPUのアイテム使用AI（シンプルな条件判定） ---
@@ -1153,6 +1238,8 @@ function handleMasmonBattleLose() {
 
 function showMasmonBattleResult(isWin) {
     ACTIVE_BATTLE_MODE = 'adventure'; // モードを元に戻す
+    // 育成中バトル用の「攻撃終了」「防御して終了」ボタンを再表示しておく
+    document.getElementById('battle-endturn-controls').classList.remove('hidden');
 
     const badge = document.getElementById('masmon-result-badge');
     const title = document.getElementById('masmon-result-title');

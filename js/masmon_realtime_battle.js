@@ -384,6 +384,12 @@ function triggerRealtimeCombatEffects(entry) {
         return;
     }
 
+    // 交代コマンド
+    if (text.includes('を引っ込め、【')) {
+        showEffect('🔄 交代！ 🔄');
+        return;
+    }
+
     // 混乱により行動失敗
     if (text.includes('混乱していて、行動できなかった')) {
         showEffect('❓ 混乱... ❓');
@@ -579,6 +585,67 @@ function renderRealtimeBattleSkills(state) {
         </div>
     `;
     container.appendChild(defendBtn);
+
+    // --- 交代コマンド（団体戦のみ。ライフが残っている控えのマスモンと入れ替える。1ターン消費） ---
+    const switchCandidates = getRealtimeSwitchCandidates(state);
+    if (switchCandidates.length > 0) {
+        const switchBtn = document.createElement('button');
+        switchBtn.className = `text-left p-2 rounded border transition-all active:scale-95 flex flex-col justify-between bg-emerald-950/40 border-emerald-700 text-emerald-200 ${isMyTurn ? '' : 'opacity-40 pointer-events-none'}`;
+        switchBtn.onclick = () => openRealtimeSwitchMenu(state);
+        switchBtn.innerHTML = `
+            <div class="flex justify-between items-center w-full">
+                <span class="font-bold text-xs">🔄 交代 <span class="ml-1 text-[10px] text-emerald-300 bg-[#1a120b]/10 px-1 py-0.2 rounded">1ターン消費</span></span>
+                <span class="text-[9px] font-bold">G:0</span>
+            </div>
+            <div class="flex justify-between items-center mt-0.5 w-full">
+                <div class="text-[8px] opacity-85 line-clamp-1 flex-1">控えのマスモンと交代する（ライフが残っている仲間のみ）</div>
+            </div>
+        `;
+        container.appendChild(switchBtn);
+    }
+}
+
+// --- 交代候補（団体戦・現在の場に出ていない、ライフが残っている控えのマスモン）の取得 ---
+function getRealtimeSwitchCandidates(state) {
+    const mySlot = REALTIME_BATTLE.mySlot;
+    const myTeam = state.teams[mySlot];
+    if (!myTeam || myTeam.units.length <= 1) return [];
+    return myTeam.units
+        .map((unit, idx) => ({ idx, unit }))
+        .filter(({ idx, unit }) => idx !== myTeam.activeIdx && unit.life > 0);
+}
+
+// --- 交代先選択メニューを技一覧エリアに一時的に表示する ---
+function openRealtimeSwitchMenu(state) {
+    if (REALTIME_BATTLE.actionInProgress) return;
+    const isMyTurn = state.status === 'active' && state.turnOwner === REALTIME_BATTLE.mySlot;
+    if (!isMyTurn) return;
+
+    const candidates = getRealtimeSwitchCandidates(state);
+    if (candidates.length === 0) return;
+
+    const container = document.getElementById('battle-skills-container');
+    container.innerHTML = '';
+
+    candidates.forEach(({ idx, unit }) => {
+        const lifePct = Math.max(0, Math.floor((unit.life / unit.maxLife) * 100));
+        const btn = document.createElement('button');
+        btn.className = `text-left p-2 rounded border transition-all active:scale-95 flex flex-col justify-between bg-emerald-950/40 border-emerald-700 text-emerald-200`;
+        btn.onclick = () => executeRealtimeSwitch(idx);
+        btn.innerHTML = `
+            <div class="flex justify-between items-center w-full">
+                <span class="font-bold text-xs">${unit.name}</span>
+                <span class="text-[9px] font-bold">HP ${unit.life}/${unit.maxLife} (${lifePct}%)</span>
+            </div>
+        `;
+        container.appendChild(btn);
+    });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = `text-left p-2 rounded border transition-all active:scale-95 flex items-center justify-center bg-[#1a120b] border-gray-600 text-gray-300 col-span-2`;
+    cancelBtn.onclick = () => renderRealtimeBattleSkills(REALTIME_BATTLE.cachedState);
+    cancelBtn.innerHTML = `<span class="font-bold text-xs">↩️ もどる</span>`;
+    container.appendChild(cancelBtn);
 }
 
 // -----------------------------------------------------
@@ -671,6 +738,9 @@ function executeRealtimeDefend() {
 }
 function executeRealtimeItem(itemKey) {
     performRealtimeAction({ kind: 'item', key: itemKey });
+}
+function executeRealtimeSwitch(targetIdx) {
+    performRealtimeAction({ kind: 'switch', targetIdx: targetIdx });
 }
 
 // --- チーム内で最初に見つかる生存ユニットのインデックスを返す（いなければ-1） ---
@@ -813,6 +883,13 @@ async function performRealtimeAction(action) {
             } else if (action.kind === 'defend') {
                 me.isDefending = true;
                 resultLogs.push(`${me.name} は身を守るため防御の構えを取った！（被ダメ半減／ガッツ回復ペナルティ無し）`);
+            } else if (action.kind === 'switch') {
+                const targetIdx = action.targetIdx;
+                const target = myTeam.units[targetIdx];
+                if (!target || targetIdx === myTeam.activeIdx || target.life <= 0) return; // abort：無効な交代先
+                const prevName = me.name;
+                myTeam.activeIdx = targetIdx;
+                resultLogs.push(`${prevName} を引っ込め、【${target.name}】を繰り出した！`);
             } else if (action.kind === 'item') {
                 const key = action.key;
                 if (!myItems || !myItems[key] || myItems[key] <= 0) return; // abort：アイテム切れ
@@ -888,7 +965,7 @@ async function performRealtimeAction(action) {
                 if (oppNowActive.isGyakujoActive) {
                     recovery = Math.floor(recovery * 1.2);
                 }
-                if (oppNowActive.statusEffect === "闘魂" && me.guts > 70) {
+                if (oppNowActive.statusEffect === "闘魂" && myTeam.units[myTeam.activeIdx].guts > 70) {
                     recovery = Math.floor(recovery * 1.5);
                 }
                 oppNowActive.guts = Math.min(100, oppNowActive.guts + recovery);
