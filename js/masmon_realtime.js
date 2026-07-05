@@ -15,6 +15,9 @@
 
 const REALTIME_HEARTBEAT_INTERVAL_MS = 15000;   // 15秒ごとに生存通知
 const REALTIME_DISCONNECT_TIMEOUT_MS = 60000;   // 対戦中60秒無応答で不戦勝
+const RANDOM_QUEUE_STALE_MS = 20000;            // 20秒以上更新の無い待機枠は無効（相手の離脱等）とみなし上書きする
+const RANDOM_MATCH_ROOM_WAIT_RETRY_MS = 300;     // ランダムマッチ成立直後、ルーム作成が間に合わない場合の再試行間隔
+const RANDOM_MATCH_ROOM_WAIT_MAX_RETRIES = 10;
 
 let realtimeRoomKeyword = null;
 let realtimeRoomRef = null;
@@ -24,6 +27,9 @@ let realtimeHeartbeatTimer = null;
 let realtimePendingTeam = [];   // 持ち込みマスモン配列（個人戦なら要素1、団体戦なら最大3）
 let realtimePendingType = 'solo'; // 'solo' | 'team'
 let realtimePendingItems = [];
+let realtimeIsRandomMatch = false;    // ランダムマッチング（合言葉なし）で成立した対戦かどうか
+let realtimeRandomQueueRef = null;    // 自分がランダムマッチの待機枠を持っている場合の参照（キャンセル時のクリア用）
+let realtimeRandomQueueRoomKey = null; // 自分が発行した待機枠のルームキー（他人に奪われていないか確認用）
 
 // -----------------------------------------------------
 // 対戦アイテム選択画面 → リアルタイム対戦への橋渡し
@@ -91,6 +97,7 @@ function showRealtimeKeywordScreen(team, itemLoadout, battleType) {
     document.getElementById('realtime-keyword-input').value = '';
     document.getElementById('realtime-keyword-status').textContent = '';
     document.getElementById('realtime-keyword-submit-btn').disabled = false;
+    document.getElementById('realtime-random-match-btn').disabled = false;
 
     changeScreen('screen-masmon-realtime-keyword');
 }
@@ -98,6 +105,29 @@ function showRealtimeKeywordScreen(team, itemLoadout, battleType) {
 function cancelRealtimeSetup() {
     resetRealtimeRoomState();
     showMasmonList();
+}
+
+// -----------------------------------------------------
+// マッチング用の自分側ペイロード（合言葉マッチ／ランダムマッチ共通）
+// -----------------------------------------------------
+function buildRealtimeMyPayload() {
+    return {
+        id: getMyPlayerId(),
+        name: GAME_STATE.playerName || 'ブリーダー',
+        battleType: realtimePendingType,
+        team: realtimePendingTeam.map(m => ({
+            name: m.name,
+            emoji: m.emoji,
+            monsterBaseName: m.monsterBaseName,
+            stats: m.stats,
+            skills: m.skills,
+            skillEnhancements: m.skillEnhancements || {},
+            statusEffect: m.statusEffect || null,
+            isAwakened: !!m.isAwakened
+        })),
+        items: buildItemCounts(realtimePendingItems),
+        lastSeen: Date.now()
+    };
 }
 
 // -----------------------------------------------------
@@ -127,27 +157,12 @@ async function startRealtimeMatching() {
     }
 
     document.getElementById('realtime-keyword-submit-btn').disabled = true;
+    document.getElementById('realtime-random-match-btn').disabled = true;
     statusEl.textContent = 'マッチングを試みています...';
     statusEl.className = 'text-[10px] text-center text-gray-400';
 
     const myId = getMyPlayerId();
-    const myPayload = {
-        id: myId,
-        name: GAME_STATE.playerName || 'ブリーダー',
-        battleType: realtimePendingType,
-        team: realtimePendingTeam.map(m => ({
-            name: m.name,
-            emoji: m.emoji,
-            monsterBaseName: m.monsterBaseName,
-            stats: m.stats,
-            skills: m.skills,
-            skillEnhancements: m.skillEnhancements || {},
-            statusEffect: m.statusEffect || null,
-            isAwakened: !!m.isAwakened
-        })),
-        items: buildItemCounts(realtimePendingItems),
-        lastSeen: Date.now()
-    };
+    const myPayload = buildRealtimeMyPayload();
 
     const safeKeyword = encodeURIComponent(keyword).replace(/\./g, '%2E');
     const path = `battle_rooms/${safeKeyword}`;
@@ -193,6 +208,7 @@ async function startRealtimeMatching() {
         statusEl.textContent = '通信エラーが発生しました。もう一度お試しください。';
         statusEl.className = 'text-[10px] text-center text-red-400';
         document.getElementById('realtime-keyword-submit-btn').disabled = false;
+        document.getElementById('realtime-random-match-btn').disabled = false;
         return;
     }
 
@@ -200,6 +216,7 @@ async function startRealtimeMatching() {
         statusEl.textContent = 'この合言葉は既に他の組で使用中か、個人戦／団体戦の編成が一致しません。別の合言葉をお試しください。';
         statusEl.className = 'text-[10px] text-center text-red-400';
         document.getElementById('realtime-keyword-submit-btn').disabled = false;
+        document.getElementById('realtime-random-match-btn').disabled = false;
         return;
     }
 
@@ -207,6 +224,7 @@ async function startRealtimeMatching() {
     realtimeRoomKeyword = safeKeyword;
     realtimeRoomRef = ref;
     realtimeMySlot = (roomData.player1 && roomData.player1.id === myId) ? 'player1' : 'player2';
+    realtimeIsRandomMatch = false;
 
     startRealtimeHeartbeat();
 
@@ -216,6 +234,8 @@ async function startRealtimeMatching() {
     } else {
         // 自分が1人目 → 待機画面へ。相手が来るのをリアルタイム監視する。
         document.getElementById('realtime-waiting-keyword').textContent = keyword;
+        document.getElementById('realtime-waiting-keyword-text').classList.remove('hidden');
+        document.getElementById('realtime-waiting-random-text').classList.add('hidden');
         changeScreen('screen-masmon-realtime-waiting');
 
         realtimeRoomListener = ref.on('value', snap => {
@@ -232,6 +252,184 @@ async function startRealtimeMatching() {
 }
 
 // -----------------------------------------------------
+// ランダムマッチング（合言葉なし）開始
+// 同じ編成タイプ（個人戦/団体戦）で待機している他のブリーダーとその場でマッチングする。
+// キューノード random_queue/{battleType} に「今待機している1組」の情報だけを持たせ、
+// トランザクションで「誰もいない→自分が待機枠を作る」「誰かいる→自分が2人目として成立」を判定する。
+// -----------------------------------------------------
+async function startRandomMatching() {
+    const statusEl = document.getElementById('realtime-keyword-status');
+
+    if (!initFirebase()) {
+        statusEl.textContent = 'Firebase未設定のため対戦できません。';
+        statusEl.className = 'text-[10px] text-center text-red-400';
+        return;
+    }
+
+    document.getElementById('realtime-keyword-submit-btn').disabled = true;
+    document.getElementById('realtime-random-match-btn').disabled = true;
+    statusEl.textContent = 'ランダムマッチングを試みています...';
+    statusEl.className = 'text-[10px] text-center text-gray-400';
+
+    const myId = getMyPlayerId();
+    const myPayload = buildRealtimeMyPayload();
+    const battleType = realtimePendingType;
+    const queueRef = firebaseDb.ref(`random_queue/${battleType}`);
+    const now = Date.now();
+
+    let myRoomKey = null;
+    let iAmFirst = false;
+
+    let txResult;
+    try {
+        txResult = await queueRef.transaction(current => {
+            if (!current || current.claimed || (now - current.createdAt) > RANDOM_QUEUE_STALE_MS) {
+                // 誰も待機していない（または古い/使用済みの待機枠）→ 自分が新しい待機枠を作る
+                myRoomKey = 'rand_' + now.toString(36) + Math.random().toString(36).slice(2, 8);
+                iAmFirst = true;
+                return { roomKey: myRoomKey, createdAt: now, waitingId: myId, claimed: false };
+            }
+            if (current.waitingId === myId) {
+                // 自分自身が既に待機中（多重タップ等）→ そのまま維持
+                myRoomKey = current.roomKey;
+                iAmFirst = true;
+                return current;
+            }
+            // 他の誰かが待機中 → 自分が2人目としてマッチング成立。この待機枠は使用済みにする。
+            myRoomKey = current.roomKey;
+            iAmFirst = false;
+            current.claimed = true;
+            return current;
+        });
+    } catch (e) {
+        console.error('[Firebase] ランダムマッチングエラー:', e);
+        statusEl.textContent = '通信エラーが発生しました。もう一度お試しください。';
+        statusEl.className = 'text-[10px] text-center text-red-400';
+        document.getElementById('realtime-keyword-submit-btn').disabled = false;
+        document.getElementById('realtime-random-match-btn').disabled = false;
+        return;
+    }
+
+    if (!txResult.committed || !myRoomKey) {
+        statusEl.textContent = '混み合っています。もう一度お試しください。';
+        statusEl.className = 'text-[10px] text-center text-red-400';
+        document.getElementById('realtime-keyword-submit-btn').disabled = false;
+        document.getElementById('realtime-random-match-btn').disabled = false;
+        return;
+    }
+
+    const roomRef = firebaseDb.ref(`battle_rooms/${myRoomKey}`);
+    realtimeIsRandomMatch = true;
+
+    if (iAmFirst) {
+        // 自分が1人目 → 待機枠(ルーム)を作成し、相手が来るのを待つ
+        realtimeRandomQueueRef = queueRef;
+        realtimeRandomQueueRoomKey = myRoomKey;
+
+        try {
+            await roomRef.set({
+                status: 'waiting',
+                battleType,
+                createdAt: now,
+                isRandomMatch: true,
+                player1: { ...myPayload, lastSeen: now },
+                player2: null
+            });
+        } catch (e) {
+            console.error('[Firebase] ランダムマッチ ルーム作成エラー:', e);
+            statusEl.textContent = '通信エラーが発生しました。もう一度お試しください。';
+            statusEl.className = 'text-[10px] text-center text-red-400';
+            document.getElementById('realtime-keyword-submit-btn').disabled = false;
+            document.getElementById('realtime-random-match-btn').disabled = false;
+            return;
+        }
+
+        realtimeRoomKeyword = myRoomKey;
+        realtimeRoomRef = roomRef;
+        realtimeMySlot = 'player1';
+
+        startRealtimeHeartbeat();
+
+        document.getElementById('realtime-waiting-keyword-text').classList.add('hidden');
+        document.getElementById('realtime-waiting-random-text').classList.remove('hidden');
+        changeScreen('screen-masmon-realtime-waiting');
+
+        realtimeRoomListener = roomRef.on('value', snap => {
+            const data = snap.val();
+            if (!data) return;
+            if (data.status === 'matched' && data.player2) {
+                enterRealtimeMatchedScreen(data);
+            }
+        });
+    } else {
+        // 自分が2人目 → 相手が作成したルームにplayer2として参加する。
+        // 相手のルーム作成がわずかに遅れている可能性があるため、数回リトライする。
+        let joined = false;
+        let roomData = null;
+
+        for (let attempt = 0; attempt < RANDOM_MATCH_ROOM_WAIT_MAX_RETRIES && !joined; attempt++) {
+            if (attempt > 0) {
+                await new Promise(resolve => setTimeout(resolve, RANDOM_MATCH_ROOM_WAIT_RETRY_MS));
+            }
+            let joinResult;
+            try {
+                joinResult = await roomRef.transaction(current => {
+                    if (!current) return; // ルーム未作成 → 中断してリトライ
+                    if (current.player2) return; // 想定外：既に埋まっている → 中断
+                    current.player2 = { ...myPayload, lastSeen: now };
+                    current.status = 'matched';
+                    current.matchedAt = now;
+                    return current;
+                });
+            } catch (e) {
+                console.error('[Firebase] ランダムマッチ 参加エラー:', e);
+                continue;
+            }
+            if (joinResult.committed) {
+                joined = true;
+                roomData = joinResult.snapshot.val();
+            }
+        }
+
+        if (!joined) {
+            statusEl.textContent = '対戦相手との接続に失敗しました。もう一度お試しください。';
+            statusEl.className = 'text-[10px] text-center text-red-400';
+            document.getElementById('realtime-keyword-submit-btn').disabled = false;
+            document.getElementById('realtime-random-match-btn').disabled = false;
+            return;
+        }
+
+        realtimeRoomKeyword = myRoomKey;
+        realtimeRoomRef = roomRef;
+        realtimeMySlot = 'player2';
+
+        startRealtimeHeartbeat();
+        enterRealtimeMatchedScreen(roomData);
+    }
+}
+
+// -----------------------------------------------------
+// 自分が発行したランダムマッチの待機枠が、まだ誰にも使われていなければ削除する
+// （キャンセル時に他のプレイヤーが古い待機枠のタイムアウトを待たされないようにするため）
+// -----------------------------------------------------
+async function clearMyRandomQueueEntryIfMine() {
+    if (!realtimeRandomQueueRef || !realtimeRandomQueueRoomKey) return;
+    const myRoomKey = realtimeRandomQueueRoomKey;
+    try {
+        await realtimeRandomQueueRef.transaction(current => {
+            if (current && current.roomKey === myRoomKey && !current.claimed) {
+                return null; // 削除：次の人がすぐに新しい待機枠を作れるようにする
+            }
+            return current; // 既に他の人にマッチングされている等 → そのまま
+        });
+    } catch (e) {
+        console.error('[Firebase] ランダムマッチ待機枠クリアエラー:', e);
+    }
+    realtimeRandomQueueRef = null;
+    realtimeRandomQueueRoomKey = null;
+}
+
+// -----------------------------------------------------
 // マッチング待機のキャンセル
 // -----------------------------------------------------
 async function cancelRealtimeMatching() {
@@ -245,6 +443,7 @@ async function cancelRealtimeMatching() {
             console.error('[Firebase] ルーム削除エラー:', e);
         }
     }
+    await clearMyRandomQueueEntryIfMine();
     resetRealtimeRoomState();
     showToast('マッチングをキャンセルしました。');
     showMasmonList();
@@ -266,7 +465,7 @@ function enterRealtimeMatchedScreen(roomData) {
 
     const detail = document.getElementById('realtime-matched-detail');
     detail.innerHTML = `
-        <div class="text-xs text-sky-300 font-bold border-b border-sky-800 pb-1 mb-1">対戦カード（${isTeam ? '団体戦' : '個人戦'}）</div>
+        <div class="text-xs text-sky-300 font-bold border-b border-sky-800 pb-1 mb-1">対戦カード（${isTeam ? '団体戦' : '個人戦'}）${realtimeIsRandomMatch ? '<span class="ml-1 text-[9px] text-purple-300">🎲 ランダムマッチング</span>' : ''}</div>
         <div class="flex justify-between text-xs"><span class="text-gray-400">あなた:</span><span class="text-white font-bold">${myData.name} の ${myNames}</span></div>
         <div class="flex justify-between text-xs"><span class="text-gray-400">対戦相手:</span><span class="text-white font-bold">${opponentData.name} の ${oppNames}</span></div>
     `;
@@ -300,6 +499,7 @@ async function leaveRealtimeRoom() {
             console.error('[Firebase] ルーム削除エラー:', e);
         }
     }
+    await clearMyRandomQueueEntryIfMine();
     resetRealtimeRoomState();
     showMasmonList();
 }
@@ -336,4 +536,7 @@ function resetRealtimeRoomState() {
     realtimePendingTeam = [];
     realtimePendingType = 'solo';
     realtimePendingItems = [];
+    realtimeIsRandomMatch = false;
+    realtimeRandomQueueRef = null;
+    realtimeRandomQueueRoomKey = null;
 }

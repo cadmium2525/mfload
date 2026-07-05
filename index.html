@@ -673,7 +673,7 @@
                 <div class="bg-sky-950/40 p-3 rounded-xl border border-sky-700 text-center">
                     <div class="text-3xl mb-1">🌐</div>
                     <h2 class="text-lg font-black text-sky-300 pixel-font">リアルタイム対戦</h2>
-                    <p class="text-[10px] text-gray-400 mt-1">対戦相手とあらかじめ決めた「合言葉」を、2人とも同じものを入力してください。</p>
+                    <p class="text-[10px] text-gray-400 mt-1">対戦相手とあらかじめ決めた「合言葉」で対戦するか、合言葉なしでランダムな相手と対戦できます。</p>
                 </div>
 
                 <div id="realtime-selected-masmon-preview" class="bg-[#2a1b15] border border-sky-900/50 rounded-xl p-2.5 flex items-center space-x-2"></div>
@@ -688,6 +688,14 @@
                     <button id="realtime-keyword-submit-btn" onclick="startRealtimeMatching()" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-sm transition-all active:scale-95">
                         🔑 この合言葉でマッチング開始
                     </button>
+                    <div class="flex items-center space-x-2 py-0.5">
+                        <div class="flex-1 h-px bg-sky-900"></div>
+                        <span class="text-[9px] text-gray-500">または</span>
+                        <div class="flex-1 h-px bg-sky-900"></div>
+                    </div>
+                    <button id="realtime-random-match-btn" onclick="startRandomMatching()" class="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-sm transition-all active:scale-95">
+                        🎲 合言葉なしでランダムマッチング
+                    </button>
                     <button onclick="cancelRealtimeSetup()" class="w-full py-2.5 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs border border-amber-800 transition-all active:scale-95">
                         戻る
                     </button>
@@ -698,7 +706,8 @@
             <div id="screen-masmon-realtime-waiting" class="screen flex-col justify-center items-center h-full p-6 bg-[#1a120b] space-y-4 text-center">
                 <div class="text-4xl animate-pulse">📡</div>
                 <h2 class="text-base font-black text-sky-300 pixel-font">対戦相手を待っています…</h2>
-                <p class="text-[11px] text-gray-400 leading-relaxed">合言葉「<span id="realtime-waiting-keyword" class="text-sky-300 font-bold"></span>」で<br>相手が入室するとマッチングが成立します。<br>この画面のまま少しお待ちください。</p>
+                <p id="realtime-waiting-keyword-text" class="text-[11px] text-gray-400 leading-relaxed">合言葉「<span id="realtime-waiting-keyword" class="text-sky-300 font-bold"></span>」で<br>相手が入室するとマッチングが成立します。<br>この画面のまま少しお待ちください。</p>
+                <p id="realtime-waiting-random-text" class="hidden text-[11px] text-gray-400 leading-relaxed">同じ編成タイプ（個人戦/団体戦）の<br>他のブリーダーとランダムマッチング中です。<br>この画面のまま少しお待ちください。</p>
                 <button onclick="cancelRealtimeMatching()" class="w-full py-3 bg-red-950 hover:bg-red-900 border border-red-700 text-red-300 font-bold rounded-xl text-xs transition-all active:scale-95">
                     ✕ マッチングをキャンセルする
                 </button>
