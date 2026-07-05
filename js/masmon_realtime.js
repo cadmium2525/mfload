@@ -100,6 +100,7 @@ function showRealtimeKeywordScreen(team, itemLoadout, battleType) {
     document.getElementById('realtime-random-match-btn').disabled = false;
 
     changeScreen('screen-masmon-realtime-keyword');
+    if (typeof renderRealtimeMyRatingBadge === 'function') renderRealtimeMyRatingBadge();
 }
 
 function cancelRealtimeSetup() {

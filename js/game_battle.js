@@ -185,13 +185,27 @@ function startPlayerTurn(isFirstTurn = false) {
 
 function toggleSkillButtons(enable) {
     const container = document.getElementById('battle-skills-container');
-    const buttons = container.querySelectorAll('button');
-    buttons.forEach(btn => {
-        if (enable) {
-            btn.classList.remove('pointer-events-none', 'opacity-40');
-        } else {
+    const p = GAME_STATE.player;
+    const gutsVal = Math.floor(p.guts);
+    const skillBtnPrefix = 'skill-btn-';
+
+    container.querySelectorAll('button').forEach(btn => {
+        if (!enable) {
             btn.classList.add('opacity-40', 'pointer-events-none');
+            return;
         }
+        // 有効化する場合でも、ガッツが足りない技ボタンは無効のままにする
+        // （そうしないと「ガッツ不足で使えない技」がターン開始時に強制的に光ったままになってしまうため）
+        if (btn.id && btn.id.startsWith(skillBtnPrefix)) {
+            const skKey = btn.id.slice(skillBtnPrefix.length);
+            const sk = SKILLS_DB[skKey];
+            const isUsedLimit = GAME_STATE.usedSkillsThisTurn[skKey] && skKey === 'charge';
+            if (sk && (gutsVal < sk.cost || isUsedLimit)) {
+                btn.classList.add('opacity-40', 'pointer-events-none');
+                return;
+            }
+        }
+        btn.classList.remove('pointer-events-none', 'opacity-40');
     });
 }
 

@@ -87,9 +87,24 @@ async function initializeRealtimeBattleState() {
             return;
         }
 
+        // PvPレーティング：バトル開始時点の両者のレートを取得しておく
+        // （後にどちらのクライアントが結果を反映しても同じ変動量を再現できるよう、
+        //   開始時点のスナップショットとしてbattleStateに埋め込む）
+        const ratingMode = (roomData.battleType === 'team') ? 'team' : 'solo';
+        const ratingSeason = getPvpSeasonKey();
+        const [p1Rating, p2Rating] = await Promise.all([
+            fetchPvpPlayerRating(ratingMode, ratingSeason, roomData.player1.id),
+            fetchPvpPlayerRating(ratingMode, ratingSeason, roomData.player2.id)
+        ]);
+
         await stateRef.transaction(current => {
             if (current) return current; // 既に相手が作成済み → そのまま採用
-            return buildInitialRealtimeBattleState(roomData);
+            return buildInitialRealtimeBattleState(roomData, {
+                mode: ratingMode,
+                season: ratingSeason,
+                p1Rating,
+                p2Rating
+            });
         });
     } catch (e) {
         console.error('[Firebase] リアルタイムバトル初期化エラー:', e);
@@ -148,13 +163,15 @@ function getRealtimeEffectiveSkill(unit, skKey) {
     };
 }
 
-function buildInitialRealtimeBattleState(roomData) {
+function buildInitialRealtimeBattleState(roomData, ratingInfo) {
     const p1Team = (roomData.player1.team || []).map(convertRoomMasmonToRealtimeUnit);
     const p2Team = (roomData.player2.team || []).map(convertRoomMasmonToRealtimeUnit);
     const turnOwner = p2Team[0].spd > p1Team[0].spd ? 'player2' : 'player1';
 
     const p1Items = roomData.player1.items || { mango: 0, kuri: 0, toro: 0 };
     const p2Items = roomData.player2.items || { mango: 0, kuri: 0, toro: 0 };
+
+    ratingInfo = ratingInfo || {};
 
     return {
         status: 'active',
@@ -167,6 +184,19 @@ function buildInitialRealtimeBattleState(roomData) {
             player1: roomData.player1.name || 'ブリーダー1',
             player2: roomData.player2.name || 'ブリーダー2'
         },
+        // PvPレーティング：どちらの陣営がどのプレイヤーIDか、開始時点のレートは何だったかを記録しておく
+        // （バトル終了時、Elo変動量をどちらのクライアントが計算しても同じ結果になるようにするため）
+        playerIds: {
+            player1: roomData.player1.id || null,
+            player2: roomData.player2.id || null
+        },
+        ratingMode: ratingInfo.mode || (roomData.battleType === 'team' ? 'team' : 'solo'),
+        ratingSeason: ratingInfo.season || getPvpSeasonKey(),
+        ratingsAtStart: {
+            player1: (typeof ratingInfo.p1Rating === 'number') ? ratingInfo.p1Rating : PVP_RATING_INITIAL,
+            player2: (typeof ratingInfo.p2Rating === 'number') ? ratingInfo.p2Rating : PVP_RATING_INITIAL
+        },
+        ratingApplied: false,
         teams: {
             player1: { units: p1Team, activeIdx: 0 },
             player2: { units: p2Team, activeIdx: 0 }
@@ -1099,9 +1129,13 @@ async function surrenderRealtimeBattle() {
 // -----------------------------------------------------
 // バトル終了処理
 // -----------------------------------------------------
-function handleRealtimeBattleEnd(state) {
+async function handleRealtimeBattleEnd(state) {
     if (!REALTIME_BATTLE.active) return; // 二重処理防止
     REALTIME_BATTLE.active = false;
+
+    // ルーム削除（結果表示後）より前に確実にレート反映処理を終わらせるため、
+    // 後始末が走る前に参照を確保しておく
+    const roomRef = REALTIME_BATTLE.ref;
 
     detachRealtimeBattleListeners();
 
@@ -1112,6 +1146,14 @@ function handleRealtimeBattleEnd(state) {
         : '';
 
     showEffect(isWin ? '🏆 WIN!! 🏆' : '💀 LOSE... 💀');
+
+    // PvPレーティング反映：両クライアントが呼び出すが、先着1回のみ実際に反映される
+    try {
+        await applyRealtimeMatchRating(roomRef, state);
+    } catch (e) {
+        console.error('[PvPレート] 反映処理エラー:', e);
+    }
+
     setTimeout(() => showRealtimeBattleResult(state, isWin, reasonText), 1200);
 }
 
@@ -1154,12 +1196,27 @@ function showRealtimeBattleResult(state, isWin, reasonText) {
     const survivedTeam = isWin ? myTeam : oppTeam;
     const survivedCount = survivedTeam.units.filter(u => u.life > 0).length;
 
+    // PvPレーティング変動の表示（Elo計算は決定論的なので、どちらのクライアントで計算しても同じ結果になる）
+    let ratingRow = '';
+    if (state.playerIds && state.playerIds[mySlot] && state.ratingsAtStart) {
+        const myStart = state.ratingsAtStart[mySlot];
+        const oppStart = state.ratingsAtStart[oppSlot];
+        if (typeof myStart === 'number' && typeof oppStart === 'number') {
+            const myDelta = computePvpEloDelta(myStart, oppStart, isWin ? 1 : 0);
+            const myAfter = Math.round(myStart + myDelta);
+            const deltaStr = myDelta > 0 ? `+${myDelta}` : `${myDelta}`;
+            const deltaColor = myDelta >= 0 ? 'text-sky-400' : 'text-orange-400';
+            ratingRow = `<div class="flex justify-between text-xs"><span class="text-gray-400">PvPレート（${isTeam ? '団体戦' : '個人戦'}）:</span><span class="font-bold ${deltaColor}">${Math.round(myStart)} → ${myAfter}（${deltaStr}）</span></div>`;
+        }
+    }
+
     detail.innerHTML = `
         <div class="text-xs text-sky-300 font-bold border-b border-sky-800 pb-1 mb-1">リアルタイム${isTeam ? '団体戦' : '対戦'}結果</div>
         <div class="flex justify-between text-xs"><span class="text-gray-400">あなたの${isTeam ? 'チーム' : 'マスモン'}:</span><span class="text-white font-bold">${myNames}</span></div>
         <div class="flex justify-between text-xs"><span class="text-gray-400">対戦相手:</span><span class="text-white font-bold">${oppOwnerName} の ${oppNames}</span></div>
         ${isTeam ? `<div class="flex justify-between text-xs"><span class="text-gray-400">生存数:</span><span class="text-white font-bold">${survivedCount}/${survivedTeam.units.length}</span></div>` : ''}
         <div class="flex justify-between text-xs"><span class="text-gray-400">経過ターン数:</span><span class="text-white font-bold">${state.turnNumber || 1}</span></div>
+        ${ratingRow}
     `;
 
     // 使用済みのバトルルームを片付ける（相手が先に退出済みでも問題無い）

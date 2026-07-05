@@ -80,6 +80,10 @@
                         <i class="fa-solid fa-ranking-star"></i>
                         <span>ランキングを見る</span>
                     </button>
+                    <button onclick="showPvpRanking()" class="w-full py-2.5 bg-[#1a120b] hover:bg-[#2a1b15] text-sky-400 font-bold rounded-xl text-sm shadow border border-sky-800 transition-all active:scale-95 pixel-font flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-trophy"></i>
+                        <span>PvPレートランキング</span>
+                    </button>
                     <button onclick="showMasmonList()" class="w-full py-2.5 bg-[#1a120b] hover:bg-[#2a1b15] text-purple-400 font-bold rounded-xl text-sm shadow border border-purple-800 transition-all active:scale-95 pixel-font flex items-center justify-center space-x-2">
                         <i class="fa-solid fa-paw"></i>
                         <span>マイマスモンを見る</span>
@@ -618,6 +622,10 @@
                     🛡️⚔️🛡️ 団体戦（3vs3）に挑む
                 </button>
 
+                <button onclick="showPvpRanking()" class="w-full py-2.5 bg-sky-950/40 hover:bg-sky-900/40 text-sky-300 font-bold rounded-xl text-xs border border-sky-800 transition-all active:scale-95">
+                    🏆 PvPレートランキングを見る
+                </button>
+
                 <button onclick="restartGame()" class="w-full py-3 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs border border-amber-800 transition-all active:scale-95">
                     タイトルに戻る
                 </button>
@@ -677,6 +685,11 @@
                 </div>
 
                 <div id="realtime-selected-masmon-preview" class="bg-[#2a1b15] border border-sky-900/50 rounded-xl p-2.5 flex items-center space-x-2"></div>
+
+                <div class="flex items-center justify-between bg-[#1a120b] border border-amber-900/50 rounded-lg px-2.5 py-1.5">
+                    <span id="realtime-my-rating-display" class="text-[10px] text-amber-300 font-bold"></span>
+                    <button onclick="showPvpRanking()" class="text-[10px] text-sky-300 font-bold underline decoration-dotted">🏆 PvPランキング</button>
+                </div>
 
                 <div class="flex-1 flex flex-col justify-center space-y-3">
                     <input id="realtime-keyword-input" type="text" maxlength="20" placeholder="合言葉を入力（2文字以上）"
@@ -752,6 +765,41 @@
                         マイマスモンに戻る
                     </button>
                 </div>
+            </div>
+
+            <!-- ==================== SCREEN 9: PvPレートランキング画面 ==================== -->
+            <div id="screen-pvp-ranking" class="screen flex-col justify-between h-full p-4 bg-[#1a120b] space-y-3">
+                <div class="bg-sky-950/40 p-3 rounded-xl border border-sky-700 text-center">
+                    <div class="text-3xl mb-1">🏆</div>
+                    <h2 class="text-lg font-black text-sky-300 pixel-font">PvPレートランキング</h2>
+                    <p class="text-[10px] text-gray-400 mt-1">Elo方式（初期レート1500 / K=32）・1ヶ月ごとのシーズン制</p>
+                </div>
+
+                <!-- 個人戦/団体戦タブ -->
+                <div class="flex space-x-2">
+                    <button id="pvp-tab-solo" onclick="switchPvpRankingMode('solo')" class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all bg-sky-900 border-sky-600 text-sky-300">⚔️ 個人戦</button>
+                    <button id="pvp-tab-team" onclick="switchPvpRankingMode('team')" class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all bg-[#2a1b15] border-indigo-900 text-gray-400">🛡️⚔️🛡️ 団体戦</button>
+                </div>
+
+                <!-- シーズン選択 -->
+                <div class="flex items-center space-x-2">
+                    <span class="text-[10px] text-gray-400 shrink-0">シーズン:</span>
+                    <select id="pvp-season-select" onchange="onPvpSeasonChange()" class="flex-1 bg-[#1a120b] border border-amber-900 text-xs text-white rounded-lg px-2 py-1.5 focus:outline-none focus:border-amber-500"></select>
+                </div>
+
+                <!-- 自分の成績カード -->
+                <div id="pvp-my-stats-card" class="bg-[#24150e] border border-amber-800/60 rounded-xl p-2.5">
+                    <div class="text-center text-gray-500 text-[10px] py-2">読み込み中...</div>
+                </div>
+
+                <!-- ランキングリスト -->
+                <div class="flex-1 overflow-y-auto space-y-1.5 pr-1" id="pvp-ranking-list-container">
+                    <div class="text-center text-gray-500 text-xs py-8">読み込み中...</div>
+                </div>
+
+                <button onclick="restartGame()" class="w-full py-3 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs border border-amber-800 transition-all active:scale-95">
+                    タイトルに戻る
+                </button>
             </div>
 
         </div>
@@ -910,6 +958,17 @@
         </div>
     </div>
 
+    <!-- PvP対戦履歴モーダル -->
+    <div id="pvp-history-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 hidden" onclick="closePvpHistoryModal()">
+        <div class="bg-[#2a1b15] w-full max-w-xs max-h-[80vh] overflow-y-auto p-4 rounded-2xl border-2 border-sky-600 space-y-2 shadow-2xl" onclick="event.stopPropagation()">
+            <h4 id="pvp-history-modal-title" class="text-sm font-black text-sky-300 pixel-font border-b border-sky-800 pb-2">対戦履歴</h4>
+            <div id="pvp-history-list" class="space-y-1.5"></div>
+            <button onclick="closePvpHistoryModal()" class="w-full py-2 bg-sky-700 hover:bg-sky-600 text-white font-bold rounded-xl text-xs transition-all mt-2">
+                閉じる
+            </button>
+        </div>
+    </div>
+
     <!-- ==================== SCRIPT / ゲームロジック ==================== -->
     <script src="js/database.js"></script>
     <script src="js/game_core.js"></script>
@@ -920,6 +979,7 @@
     <script src="js/masmon_transfer.js"></script>
     <script src="js/masmon_battle.js"></script>
     <script src="js/masmon_team.js"></script>
+    <script src="js/masmon_rating.js"></script>
     <script src="js/masmon_realtime.js"></script>
     <script src="js/masmon_realtime_battle.js"></script>
 </body>
