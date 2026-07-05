@@ -300,6 +300,10 @@ function startGame() {
         startSkills = ['shippo', 'kamitsuki_dino', 'sunakake'];
     } else if (template.id === 'monolith') {
         startSkills = ['monotaore', 'warawara', 'sakebigoe'];
+    } else if (template.id === 'plant') {
+        startSkills = ['renkon', 'tane_gun', 'kafun'];
+    } else if (template.id === 'kyubi') {
+        startSkills = ['hikkaki', 'kitsunebi'];
     }
 
     GAME_STATE.player = {
@@ -309,7 +313,9 @@ function startGame() {
         skills: startSkills,
         weakenTurns: 0,   // わらわら等で受ける「ちから・かしこさ低下」の残ターン
         confuseTurns: 0,  // サケビ声等で受ける「混乱」の残行動回数
-        forceBoost: 0     // オーロラゲート等で得る「次の技威力アップ」倍率
+        forceBoost: 0,    // オーロラゲート等で得る「次の技威力アップ」倍率
+        shieldValue: 0,   // 九重神眼等で得るシールド（被ダメージ吸収）の残量
+        dodgeNextGuaranteed: false // 陽炎等で得る「次の敵攻撃を確実に回避」フラグ
     };
 
     if (GAME_STATE.inheritedSkill && !GAME_STATE.player.skills.includes(GAME_STATE.inheritedSkill)) {

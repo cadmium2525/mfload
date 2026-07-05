@@ -112,6 +112,8 @@ function switchMonsterTab(monsterName) {
         'スエゾー': { id: 'rank-tab-suezo', active: 'bg-cyan-900 border-cyan-500 text-cyan-200',           inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
         'ディノ':   { id: 'rank-tab-dino',  active: 'bg-emerald-900 border-emerald-500 text-emerald-200',  inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
         'モノリス': { id: 'rank-tab-monolith', active: 'bg-stone-700 border-stone-400 text-stone-200', inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
+        'プラント': { id: 'rank-tab-plant', active: 'bg-pink-900 border-pink-500 text-pink-200', inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
+        'キュービ': { id: 'rank-tab-kyubi', active: 'bg-orange-900 border-orange-500 text-orange-200', inactive: 'bg-[#2a1b15] border-amber-900 text-gray-400' },
     };
 
     const baseClass = 'flex-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all flex items-center justify-center ';
@@ -160,7 +162,7 @@ async function loadRanking(difficulty, monsterFilter = 'all') {
         const rankIcons = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
 
         // モンスター名→絵文字のフォールバックマップ
-        const monsterEmojiMap = { 'モッチー': '🍪', 'スエゾー': '👁️', 'ディノ': '🦖', 'モノリス': '🗿' };
+        const monsterEmojiMap = { 'モッチー': '🍪', 'スエゾー': '👁️', 'ディノ': '🦖', 'モノリス': '🗿', 'プラント': '🌸', 'キュービ': '🦊' };
 
         const rows = top10.map(function(entry, i) {
             const rankIcon = rankIcons[i] !== undefined ? rankIcons[i] : ((i + 1) + '位');

@@ -27,6 +27,20 @@ const MONSTER_TEMPLATES = {
         emoji: '🗿',
         desc: '古代より佇む謎の岩石生命体。動きは鈍く回避は苦手だが、岩の肉体は並外れた丈夫さを誇り、ちから・かしこさ両面の技を使いこなす。',
         stats: { maxLife: 235, life: 235, pow: 48, int: 44, hit: 42, spd: 26, def: 62, gutsSpeed: 13 }
+    },
+    plant: {
+        id: 'plant',
+        name: 'プラント',
+        emoji: '🌸',
+        desc: '花を戴く植物系のモンスター。ちからはやや低めだが、驚異的な生命力を持ち、多彩なかしこさ技で相手を翻弄する。',
+        stats: { maxLife: 260, life: 260, pow: 32, int: 52, hit: 46, spd: 32, def: 46, gutsSpeed: 14 }
+    },
+    kyubi: {
+        id: 'kyubi',
+        name: 'キュービ',
+        emoji: '🦊',
+        desc: '妖しい九尾を操る霊獣。ライフと丈夫さは低めだが、卓越したかしこさと俊敏さを併せ持ち、幻惑と防御術で戦況を操る。',
+        stats: { maxLife: 190, life: 190, pow: 28, int: 62, hit: 50, spd: 55, def: 28, gutsSpeed: 15 }
     }
 };
 
@@ -69,6 +83,25 @@ const SKILLS_DB = {
     sakebigoe: { name: 'サケビ声', cost: 20, type: 'int', hitRate: 95, force: 0.75, gutsDown: 15, effect: 'confuse_30', desc: '甲高い叫び声で相手の精神を揺さぶる高命中技。相手GUTS-15。さらに命中した場合、3回の行動の間30%の確率で相手を混乱させる（混乱中は行動に失敗する）' },
     aurora_gate: { name: 'オーロラゲート', cost: 30, type: 'int', hitRate: 80, force: 1.7, gutsDown: 15, effect: 'next_force_up', desc: '虹色の門を展開し力を収束させる。相手GUTS-15。さらに命中した場合、自身が次に繰り出す技の威力が50%アップする' },
     trio_beam_z: { name: 'トリオビームZ', cost: 55, type: 'int', hitRate: 65, force: 2.8, gutsDown: 30, effect: null, desc: '三条の破壊光線を放つ最大出力の切り札。相手GUTS-30' },
+
+    // --- プラント系統 ---
+    renkon: { name: '連続根っこ', cost: 20, type: 'pow', hitRate: 100, force: 0.8, gutsDown: 10, effect: null, desc: '地中の根っこを操り連続で打ちすえる。回避を完全に無視して【必中】する！相手GUTS-10' },
+    combination: { name: 'コンビネーション', cost: 35, type: 'pow', hitRate: 78, force: 1.8, gutsDown: 15, effect: null, desc: '枝と根を使った連続コンビネーション攻撃。相手GUTS-15' },
+    face_drill: { name: 'フェイスドリル', cost: 45, type: 'pow', hitRate: 68, force: 2.3, gutsDown: 20, effect: null, desc: '顔面の突起を高速回転させ突き刺す大技。相手GUTS-20' },
+    tane_gun: { name: '種ガン', cost: 20, type: 'int', hitRate: 82, force: 1.1, gutsDown: 10, effect: null, desc: '硬い種を弾丸のように撃ち出す基本技。相手GUTS-10' },
+    tane_machinegun: { name: '種マシンガン', cost: 32, type: 'int', hitRate: 78, force: 1.4, gutsDown: 15, effect: null, desc: '種を連射して相手を蜂の巣にする。相手GUTS-15' },
+    kafun: { name: '花粉', cost: 25, type: 'int', hitRate: 90, force: 0.2, gutsDown: 40, effect: null, desc: '大量の花粉をまき散らし、相手の闘志を大きく削ぐ。相手GUTS-40' },
+    flower_beam: { name: 'フラワービーム', cost: 45, type: 'int', hitRate: 70, force: 2.2, gutsDown: 20, effect: null, desc: '花の中心から極大の光線を放つ切り札。相手GUTS-20' },
+    drain: { name: 'ドレイン', cost: 35, type: 'int', hitRate: 68, force: 1.4, gutsDown: 10, effect: 'drain_heal', desc: '相手の生命力を吸い取る。命中率はやや低めだが、与えたダメージの20%だけ自身のライフを回復する。相手GUTS-10' },
+
+    // --- キュービ系統 ---
+    hikkaki: { name: 'ひっかき', cost: 15, type: 'pow', hitRate: 85, force: 0.5, gutsDown: 10, effect: null, desc: '鋭い爪で引っかく基本技。相手GUTS-10' },
+    kagerou: { name: '陽炎', cost: 45, type: 'pow', hitRate: 75, force: 1.4, gutsDown: 15, effect: 'guaranteed_dodge_next', desc: '陽炎に姿を紛れ込ませて攻撃する。相手GUTS-15。さらに命中した場合、次に受ける敵の攻撃を確実に回避する' },
+    kitsunebi: { name: '狐火', cost: 15, type: 'int', hitRate: 95, force: 0.5, gutsDown: 10, effect: null, desc: '青白い狐火を飛ばす高命中の基本技。相手GUTS-10' },
+    cho_kitsunebi: { name: '超狐火', cost: 32, type: 'int', hitRate: 88, force: 1.4, gutsDown: 15, effect: null, desc: '巨大化させた狐火をぶつける高命中技。相手GUTS-15' },
+    yuuwaku: { name: 'ゆうわく', cost: 25, type: 'int', hitRate: 85, force: 0.85, gutsDown: 40, effect: null, desc: '妖しい魅力で相手の闘志を大きく削ぐ。相手GUTS-40' },
+    kokonoe_shingan: { name: '九重神眼', cost: 40, type: 'int', hitRate: 75, force: 1.8, gutsDown: 15, effect: 'shield_self_20pct', desc: '九尾の瞳で相手を見据えて攻撃する。相手GUTS-15。さらに命中した場合、自身の最大ライフの20%に相当するシールドを展開する' },
+    tenga_tensho: { name: '天河天翔', cost: 55, type: 'int', hitRate: 60, force: 2.6, gutsDown: 20, effect: 'next_force_up_20', desc: '天空を駆け巡る霊力の奔流を叩き込む最大の切り札。相手GUTS-20。さらに命中した場合、自身が次に繰り出す技の威力が20%アップする' },
 
     // --- 敵・ボス共用 ---
     boss_bite: { name: 'かみつき', cost: 20, type: 'pow', hitRate: 75, force: 1.2, gutsDown: 10, effect: null, desc: '鋭い牙でガッツを奪う攻撃' },
@@ -129,6 +162,15 @@ function getDamageRank(force, type) {
     return 'G';
 }
 
+// --- ドレイン系技の自己回復量を計算する共通ヘルパー（与えたダメージの20%）---
+// 育成中バトル／マスモンCPU対戦／リアルタイム対戦の3系統から共通で呼び出す。
+// ライフフィールドの構造（stats.life か life か）が系統ごとに異なるため、
+// 回復量の計算のみ共通化し、実際にライフへ加算する処理は各呼び出し側で行う。
+function getDrainHealAmount(sk, damageDealt) {
+    if (!sk || sk.effect !== 'drain_heal' || !damageDealt || damageDealt <= 0) return 0;
+    return Math.max(1, Math.floor(damageDealt * 0.2));
+}
+
 // =====================================================
 // 新規状態効果ヘルパー（モノリスの技「わらわら」「サケビ声」「オーロラゲート」用）
 // 育成中バトル(game.js)／マスモンCPU対戦(masmon_battle.js)／
@@ -152,8 +194,31 @@ function applySkillOnHitEffect(caster, target, sk) {
     } else if (sk.effect === 'next_force_up') {
         caster.forceBoost = 0.5;
         logs.push(`✨ ${caster.name} の次の技の威力が50%アップした！`);
+    } else if (sk.effect === 'next_force_up_20') {
+        caster.forceBoost = 0.2;
+        logs.push(`✨ ${caster.name} の次の技の威力が20%アップした！`);
+    } else if (sk.effect === 'guaranteed_dodge_next') {
+        caster.dodgeNextGuaranteed = true;
+        logs.push(`🌫️ ${caster.name} は陽炎に包まれ、次の敵の攻撃を確実に回避する構えを取った！`);
+    } else if (sk.effect === 'shield_self_20pct') {
+        // ライフ構造の違い（stats.maxLife か maxLife か）を吸収して両対応させる
+        const maxLifeVal = caster.stats ? caster.stats.maxLife : caster.maxLife;
+        caster.shieldValue = Math.floor(maxLifeVal * 0.2);
+        logs.push(`🛡️ ${caster.name} は自身の最大ライフの20%（${caster.shieldValue}）に相当するシールドを展開した！`);
     }
     return logs;
+}
+
+// --- シールド（九重神眼等）による被ダメージ吸収を適用する共通ヘルパー ---
+// defender: shieldValueフィールドを持つユニット, damage: 吸収前のダメージ量
+// 戻り値: { finalDamage: シールド適用後のダメージ, absorbed: 吸収された量 }
+function applyShieldAbsorption(defender, damage) {
+    if (!defender || !defender.shieldValue || defender.shieldValue <= 0 || damage <= 0) {
+        return { finalDamage: damage, absorbed: 0 };
+    }
+    const absorbed = Math.min(defender.shieldValue, damage);
+    defender.shieldValue -= absorbed;
+    return { finalDamage: damage - absorbed, absorbed };
 }
 
 // --- そのユニットの行動ターン開始時に呼び出す：衰弱／混乱の残ターン消化と混乱判定 ---
@@ -379,6 +444,10 @@ const TRAINING_EVENTS = [
                         candidates = ['shippo', 'kamitsuki_dino', 'sunakake', 'kamitsukinage', 'honoo_taiatari', 'hizageri', 'kurohizacombo'];
                     } else if (player.emoji === '🗿') {
                         candidates = ['monotaore', 'warawara', 'sakebigoe', 'cho_monotaore', 'aurora_gate', 'sanren_attack', 'trio_beam_z'];
+                    } else if (player.emoji === '🌸') {
+                        candidates = ['renkon', 'tane_gun', 'kafun', 'combination', 'tane_machinegun', 'flower_beam', 'face_drill', 'drain'];
+                    } else if (player.emoji === '🦊') {
+                        candidates = ['hikkaki', 'kagerou', 'kitsunebi', 'cho_kitsunebi', 'yuuwaku', 'kokonoe_shingan', 'tenga_tensho'];
                     }
 
                     const available = candidates.filter(s => !player.skills.includes(s));

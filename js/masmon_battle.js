@@ -65,6 +65,8 @@ function convertMasmonToBattleUnit(masmonData) {
         weakenTurns: 0,   // わらわら等で受ける「ちから・かしこさ低下」の残ターン
         confuseTurns: 0,  // サケビ声等で受ける「混乱」の残行動回数
         forceBoost: 0,    // オーロラゲート等で得る「次の技威力アップ」倍率
+        shieldValue: 0,   // 九重神眼等で得るシールド（被ダメージ吸収）の残量
+        dodgeNextGuaranteed: false, // 陽炎等で得る「次の敵攻撃を確実に回避」フラグ
         stats: {
             maxLife: masmonData.stats.maxLife,
             life: masmonData.stats.maxLife,
@@ -900,7 +902,15 @@ function executeMasmonPlayerSkill(skKey) {
             if (p.isShuchuActive && !isCertain) {
                 hitChance = Math.min(99, hitChance * 1.5);
             }
-            const isHit = isCertain || (Math.random() * 100 < hitChance);
+            let isHit;
+            let isGuaranteedDodge = false;
+            if (e.dodgeNextGuaranteed) {
+                isHit = false;
+                isGuaranteedDodge = true;
+                e.dodgeNextGuaranteed = false;
+            } else {
+                isHit = isCertain || (Math.random() * 100 < hitChance);
+            }
 
             // 次技威力アップ（オーロラゲート等）の消費は命中判定に関わらず技を撃った時点で消費する
             const usedForce = consumeForceBoost(p, sk.force);
@@ -935,10 +945,18 @@ function executeMasmonPlayerSkill(skKey) {
                     damage = Math.floor(damage * 1.5);
                 }
                 damage = Math.max(1, Math.floor(damage * MASMON_BATTLE_DAMAGE_MULTIPLIER));
+
+                // 九重神眼等のシールドによる被ダメージ吸収
+                const shieldResult = applyShieldAbsorption(e, damage);
+                damage = shieldResult.finalDamage;
+
                 if (isCrit) {
                     addLog(`★クリティカルヒット！ ${e.name} に ${damage} ダメージ！${extraDmgMsg}`);
                 } else {
                     addLog(`${e.name} に ${damage} ダメージ！${extraDmgMsg}`);
+                }
+                if (shieldResult.absorbed > 0) {
+                    addLog(`🛡️ ${e.name} のシールドが ${shieldResult.absorbed} のダメージを吸収した！(シールド残量: ${e.shieldValue})`);
                 }
 
                 e.stats.life = Math.max(0, e.stats.life - damage);
@@ -958,6 +976,13 @@ function executeMasmonPlayerSkill(skKey) {
                 // モノリスの技等が持つ追加効果（衰弱／混乱付与／次技威力アップ）
                 applySkillOnHitEffect(p, e, sk).forEach(msg => addLog(msg));
 
+                // プラントの「ドレイン」等：与えたダメージの一部を自身のライフに変換
+                const drainHeal = getDrainHealAmount(sk, damage);
+                if (drainHeal > 0) {
+                    p.stats.life = Math.min(p.stats.maxLife, p.stats.life + drainHeal);
+                    addLog(`🌿 ${p.name} は相手の生命力を吸収し、ライフが ${drainHeal} 回復した！(現在: ${Math.floor(p.stats.life)})`);
+                }
+
                 p.isSokojikaraActive = false;
                 p.isShuchuActive = false;
 
@@ -965,7 +990,11 @@ function executeMasmonPlayerSkill(skKey) {
                 showDamagePopup('enemy-dmg-popup', damage, isCrit);
                 animateSprite('battle-enemy-sprite-container', 'shake');
             } else {
-                addLog('しかし、攻撃はかわされた！');
+                if (isGuaranteedDodge) {
+                    addLog(`🌫️ ${e.name} は陽炎の効果で攻撃を確実に回避した！`);
+                } else {
+                    addLog('しかし、攻撃はかわされた！');
+                }
                 showEffect('💨 MISS 💨');
                 showDamagePopup('enemy-dmg-popup', 'MISS', false);
             }
@@ -1124,7 +1153,15 @@ function executeMasmonEnemyTurn() {
                     if (e.isShuchuActive && !isCertain) {
                         hitChance = Math.min(99, hitChance * 1.5);
                     }
-                    const isHit = isCertain || (Math.random() * 100 < hitChance);
+                    let isHit;
+                    let isGuaranteedDodge = false;
+                    if (p.dodgeNextGuaranteed) {
+                        isHit = false;
+                        isGuaranteedDodge = true;
+                        p.dodgeNextGuaranteed = false;
+                    } else {
+                        isHit = isCertain || (Math.random() * 100 < hitChance);
+                    }
 
                     // 次技威力アップの消費は命中判定に関わらず技を撃った時点で消費する
                     const enemyUsedForce = consumeForceBoost(e, sk.force);
@@ -1161,8 +1198,15 @@ function executeMasmonEnemyTurn() {
 
                         damage = Math.max(1, Math.floor(damage * MASMON_BATTLE_DAMAGE_MULTIPLIER));
 
+                        // 九重神眼等のシールドによる被ダメージ吸収
+                        const shieldResult = applyShieldAbsorption(p, damage);
+                        damage = shieldResult.finalDamage;
+
                         p.stats.life = Math.max(0, p.stats.life - damage);
                         addLog(isCrit ? `★相手のクリティカル！ ${p.name} は ${damage} ダメージを受けた！` : `${p.name} は ${damage} ダメージを受けた！`);
+                        if (shieldResult.absorbed > 0) {
+                            addLog(`🛡️ ${p.name} のシールドが ${shieldResult.absorbed} のダメージを吸収した！(シールド残量: ${p.shieldValue})`);
+                        }
                         checkMasmonDefenseStatusTriggers(p);
 
                         let finalGutsDown = sk.gutsDown || 0;
@@ -1178,6 +1222,13 @@ function executeMasmonEnemyTurn() {
 
                         applySkillOnHitEffect(e, p, sk).forEach(msg => addLog(msg));
 
+                        // 相手マスモンが「ドレイン」等を使う場合：与えたダメージの一部を自身のライフに変換
+                        const enemyDrainHeal = getDrainHealAmount(sk, damage);
+                        if (enemyDrainHeal > 0) {
+                            e.stats.life = Math.min(e.stats.maxLife, e.stats.life + enemyDrainHeal);
+                            addLog(`🌿 ${e.name} は相手の生命力を吸収し、ライフが ${enemyDrainHeal} 回復した！(現在: ${Math.floor(e.stats.life)})`);
+                        }
+
                         e.isSokojikaraActive = false;
                         e.isShuchuActive = false;
 
@@ -1185,7 +1236,11 @@ function executeMasmonEnemyTurn() {
                         showDamagePopup('player-dmg-popup', damage, false);
                         animateSprite('battle-player-sprite-container', 'shake');
                     } else {
-                        addLog(`しかし ${p.name} は身軽にかわした！`);
+                        if (isGuaranteedDodge) {
+                            addLog(`🌫️ ${p.name} は陽炎の効果で攻撃を確実に回避した！`);
+                        } else {
+                            addLog(`しかし ${p.name} は身軽にかわした！`);
+                        }
                         showEffect('💨 回避!! 💨');
                         showDamagePopup('player-dmg-popup', 'MISS', false);
                     }

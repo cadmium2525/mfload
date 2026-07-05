@@ -23,6 +23,8 @@ function buildMasmonPayload(nickname) {
     if (p.emoji === '👁️') templateId = 'suezo';
     if (p.emoji === '🦖') templateId = 'dino';
     if (p.emoji === '🗿') templateId = 'monolith';
+    if (p.emoji === '🌸') templateId = 'plant';
+    if (p.emoji === '🦊') templateId = 'kyubi';
 
     return {
         name: nickname,

@@ -26,6 +26,8 @@ function setupBattle(isBoss = false) {
     GAME_STATE.player.weakenTurns = 0;
     GAME_STATE.player.confuseTurns = 0;
     GAME_STATE.player.forceBoost = 0;
+    GAME_STATE.player.shieldValue = 0;
+    GAME_STATE.player.dodgeNextGuaranteed = false;
 
     let enemyTemplate;
     if (isBoss) {
@@ -69,6 +71,8 @@ function setupBattle(isBoss = false) {
         weakenTurns: 0,
         confuseTurns: 0,
         forceBoost: 0,
+        shieldValue: 0,
+        dodgeNextGuaranteed: false,
         stats: {
             maxLife: Math.floor(enemyTemplate.maxLife * hpScale),
             life: Math.floor(enemyTemplate.maxLife * hpScale),
@@ -427,7 +431,15 @@ function executePlayerSkill(skKey) {
                 hitChance = Math.min(99, hitChance * 1.5);
             }
 
-            const isHit = isCertain || (Math.random() * 100 < hitChance);
+            let isHit;
+            let isGuaranteedDodge = false;
+            if (e.dodgeNextGuaranteed) {
+                isHit = false;
+                isGuaranteedDodge = true;
+                e.dodgeNextGuaranteed = false;
+            } else {
+                isHit = isCertain || (Math.random() * 100 < hitChance);
+            }
 
             // 次技威力アップ（オーロラゲート等）の消費は命中判定に関わらず技を撃った時点で消費する
             const usedForce = consumeForceBoost(p, effectiveSk.force);
@@ -472,9 +484,19 @@ function executePlayerSkill(skKey) {
                 let isCrit = Math.random() < 0.10;
                 if (isCrit) {
                     damage = Math.floor(damage * 1.5);
+                }
+
+                // 九重神眼等のシールドによる被ダメージ吸収
+                const shieldResult = applyShieldAbsorption(e, damage);
+                damage = shieldResult.finalDamage;
+
+                if (isCrit) {
                     addLog(`★クリティカルヒット！ ${e.name} に ${damage} ダメージ！${extraDmgMsg}`);
                 } else {
                     addLog(`${e.name} に ${damage} ダメージ！${extraDmgMsg}`);
+                }
+                if (shieldResult.absorbed > 0) {
+                    addLog(`🛡️ ${e.name} のシールドが ${shieldResult.absorbed} のダメージを吸収した！(シールド残量: ${e.shieldValue})`);
                 }
 
                 e.stats.life = Math.max(0, e.stats.life - damage);
@@ -495,12 +517,23 @@ function executePlayerSkill(skKey) {
                 // モノリスの技等が持つ追加効果（衰弱／混乱付与／次技威力アップ）
                 applySkillOnHitEffect(p, e, effectiveSk).forEach(msg => addLog(msg));
 
+                // プラントの「ドレイン」等：与えたダメージの一部を自身のライフに変換
+                const drainHeal = getDrainHealAmount(effectiveSk, damage);
+                if (drainHeal > 0) {
+                    p.stats.life = Math.min(p.stats.maxLife, p.stats.life + drainHeal);
+                    addLog(`🌿 ${p.name} は相手の生命力を吸収し、ライフが ${drainHeal} 回復した！(現在: ${Math.floor(p.stats.life)})`);
+                }
+
                 showEffect(isCrit ? '💥 CRITICAL!! 💥' : '💥 HIT! 💥');
                 showDamagePopup('enemy-dmg-popup', damage, isCrit);
                 animateSprite('battle-enemy-sprite-container', 'shake');
 
             } else {
-                addLog('しかし、攻撃はかわされた！');
+                if (isGuaranteedDodge) {
+                    addLog(`🌫️ ${e.name} は陽炎の効果で攻撃を確実に回避した！`);
+                } else {
+                    addLog('しかし、攻撃はかわされた！');
+                }
                 showEffect('💨 MISS 💨');
                 showDamagePopup('enemy-dmg-popup', 'MISS', false);
             }
@@ -616,7 +649,15 @@ function executeEnemyTurn() {
                 if (sk.type === 'pow' || sk.type === 'int') {
                     const isCertain = sk.hitRate === 100;
                     const hitChance = isCertain ? 100 : Math.max(10, Math.min(99, sk.hitRate + (e.stats.hit - p.stats.spd) * 0.5));
-                    const isHit = isCertain || (Math.random() * 100 < hitChance);
+                    let isHit;
+                    let isGuaranteedDodge = false;
+                    if (p.dodgeNextGuaranteed) {
+                        isHit = false;
+                        isGuaranteedDodge = true;
+                        p.dodgeNextGuaranteed = false;
+                    } else {
+                        isHit = isCertain || (Math.random() * 100 < hitChance);
+                    }
 
                     // 次技威力アップの消費は命中判定に関わらず技を撃った時点で消費する
                     const enemyUsedForce = consumeForceBoost(e, sk.force);
@@ -646,8 +687,15 @@ function executeEnemyTurn() {
                             addLog(`【防御効果】攻撃を盾で受け流し、ダメージを半減した！`);
                         }
 
+                        // 九重神眼等のシールドによる被ダメージ吸収
+                        const shieldResult = applyShieldAbsorption(p, damage);
+                        damage = shieldResult.finalDamage;
+
                         p.stats.life = Math.max(0, p.stats.life - damage);
                         addLog(`${p.name} は ${damage} ダメージを受けた！`);
+                        if (shieldResult.absorbed > 0) {
+                            addLog(`🛡️ ${p.name} のシールドが ${shieldResult.absorbed} のダメージを吸収した！(シールド残量: ${p.shieldValue})`);
+                        }
 
                         // 根性の発動判定
                         if (p.stats.life === 0 && GAME_STATE.playerStatusEffect === "根性") {
@@ -685,11 +733,22 @@ function executeEnemyTurn() {
 
                         applySkillOnHitEffect(e, p, sk).forEach(msg => addLog(msg));
 
+                        // プラント等の敵が「ドレイン」を使う場合：与えたダメージの一部を自身のライフに変換
+                        const enemyDrainHeal = getDrainHealAmount(sk, damage);
+                        if (enemyDrainHeal > 0) {
+                            e.stats.life = Math.min(e.stats.maxLife, e.stats.life + enemyDrainHeal);
+                            addLog(`🌿 ${e.name} は相手の生命力を吸収し、ライフが ${enemyDrainHeal} 回復した！(現在: ${Math.floor(e.stats.life)})`);
+                        }
+
                         showEffect('⚡ 被弾!! ⚡');
                         showDamagePopup('player-dmg-popup', damage, false);
                         animateSprite('battle-player-sprite-container', 'shake');
                     } else {
-                        addLog(`しかし ${p.name} は身軽にかわした！`);
+                        if (isGuaranteedDodge) {
+                            addLog(`🌫️ ${p.name} は陽炎の効果で攻撃を確実に回避した！`);
+                        } else {
+                            addLog(`しかし ${p.name} は身軽にかわした！`);
+                        }
                         showEffect('💨 回避!! 💨');
                         showDamagePopup('player-dmg-popup', 'MISS', false);
                     }
@@ -984,12 +1043,16 @@ function endGame(isClear) {
         if (p.emoji === '👁️') template = MONSTER_TEMPLATES.suezo;
         if (p.emoji === '🦖') template = MONSTER_TEMPLATES.dino;
         if (p.emoji === '🗿') template = MONSTER_TEMPLATES.monolith;
+        if (p.emoji === '🌸') template = MONSTER_TEMPLATES.plant;
+        if (p.emoji === '🦊') template = MONSTER_TEMPLATES.kyubi;
 
         let defaultSkills = [];
         if (template.id === 'mochi') defaultSkills = ['monta', 'mochiki', 'sakurafubuki'];
         if (template.id === 'suezo') defaultSkills = ['shippobinta', 'nameru', 'kamitsuki'];
         if (template.id === 'dino') defaultSkills = ['shippo', 'kamitsuki_dino', 'sunakake'];
         if (template.id === 'monolith') defaultSkills = ['monotaore', 'warawara', 'sakebigoe'];
+        if (template.id === 'plant') defaultSkills = ['renkon', 'tane_gun', 'kafun'];
+        if (template.id === 'kyubi') defaultSkills = ['hikkaki', 'kitsunebi'];
 
         const additionalSkills = p.skills.filter(s => !defaultSkills.includes(s));
 

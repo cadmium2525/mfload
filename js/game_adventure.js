@@ -435,6 +435,8 @@ function setupEvent(isTraining = false) {
         else if (p.emoji === '👁️') candidates = ['shippobinta', 'nameru', 'kamitsuki', 'kuu', 'psychokinesis', 'cho_netsushisen', 'utau', 'berobinta'];
         else if (p.emoji === '🦖') candidates = ['shippo', 'kamitsuki_dino', 'sunakake', 'kamitsukinage', 'honoo_taiatari', 'hizageri', 'kurohizacombo'];
         else if (p.emoji === '🗿') candidates = ['monotaore', 'warawara', 'sakebigoe', 'cho_monotaore', 'aurora_gate', 'sanren_attack', 'trio_beam_z'];
+        else if (p.emoji === '🌸') candidates = ['renkon', 'tane_gun', 'kafun', 'combination', 'tane_machinegun', 'flower_beam', 'face_drill', 'drain'];
+        else if (p.emoji === '🦊') candidates = ['hikkaki', 'kagerou', 'kitsunebi', 'cho_kitsunebi', 'yuuwaku', 'kokonoe_shingan', 'tenga_tensho'];
         
         const available = candidates.filter(s => !p.skills.includes(s));
         if (available.length === 0) {

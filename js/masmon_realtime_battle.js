@@ -126,6 +126,8 @@ function convertRoomMasmonToRealtimeUnit(masmon) {
         weakenTurns: 0,        // わらわら等で受ける「ちから・かしこさ低下」の残ターン
         confuseTurns: 0,       // サケビ声等で受ける「混乱」の残行動回数
         forceBoost: 0,         // オーロラゲート等で得る「次の技威力アップ」倍率
+        shieldValue: 0,        // 九重神眼等で得るシールド（被ダメージ吸収）の残量
+        dodgeNextGuaranteed: false, // 陽炎等で得る「次の敵攻撃を確実に回避」フラグ
         isConfusedThisTurn: false, // このターンの行動が混乱によって失敗するか（ターン開始時に決定）
         skills: [...(masmon.skills || [])],
         skillEnhancements: JSON.parse(JSON.stringify(masmon.skillEnhancements || {}))
@@ -796,7 +798,15 @@ async function performRealtimeAction(action) {
                     if (me.isShuchuActive && !isCertain) {
                         hitChance = Math.min(99, hitChance * 1.5);
                     }
-                    const isHit = isCertain || (Math.random() * 100 < hitChance);
+                    let isHit;
+                    let isGuaranteedDodge = false;
+                    if (opp.dodgeNextGuaranteed) {
+                        isHit = false;
+                        isGuaranteedDodge = true;
+                        opp.dodgeNextGuaranteed = false;
+                    } else {
+                        isHit = isCertain || (Math.random() * 100 < hitChance);
+                    }
 
                     // 次技威力アップ（オーロラゲート等）の消費は命中判定に関わらず技を撃った時点で消費する
                     const usedForce = consumeForceBoost(me, sk.force);
@@ -829,8 +839,15 @@ async function performRealtimeAction(action) {
 
                         damage = Math.max(1, Math.floor(damage * MASMON_BATTLE_DAMAGE_MULTIPLIER));
 
+                        // 九重神眼等のシールドによる被ダメージ吸収
+                        const shieldResult = applyShieldAbsorption(opp, damage);
+                        damage = shieldResult.finalDamage;
+
                         opp.life = Math.max(0, opp.life - damage);
                         resultLogs.push(isCrit ? `★クリティカル！ ${opp.name} に ${damage} ダメージ！` : `${opp.name} に ${damage} ダメージ！`);
+                        if (shieldResult.absorbed > 0) {
+                            resultLogs.push(`🛡️ ${opp.name} のシールドが ${shieldResult.absorbed} のダメージを吸収した！(シールド残量: ${opp.shieldValue})`);
+                        }
 
                         // 根性・底力の発動判定（ダメージを受けた側）
                         if (opp.life === 0 && opp.statusEffect === "根性") {
@@ -867,10 +884,21 @@ async function performRealtimeAction(action) {
                         // モノリスの技等が持つ追加効果（衰弱／混乱付与／次技威力アップ）
                         applySkillOnHitEffect(me, opp, sk).forEach(msg => resultLogs.push(msg));
 
+                        // プラントの「ドレイン」等：与えたダメージの一部を自身のライフに変換
+                        const drainHeal = getDrainHealAmount(sk, damage);
+                        if (drainHeal > 0) {
+                            me.life = Math.min(me.maxLife, me.life + drainHeal);
+                            resultLogs.push(`🌿 ${me.name} は相手の生命力を吸収し、ライフが ${drainHeal} 回復した！`);
+                        }
+
                         me.isSokojikaraActive = false;
                         me.isShuchuActive = false;
                     } else {
-                        resultLogs.push(`しかし攻撃はかわされた！`);
+                        if (isGuaranteedDodge) {
+                            resultLogs.push(`🌫️ ${opp.name} は陽炎の効果で攻撃を確実に回避した！`);
+                        } else {
+                            resultLogs.push(`しかし攻撃はかわされた！`);
+                        }
                     }
                 } else if (sk.type === 'buff_pow') {
                     me.pow += 15;
