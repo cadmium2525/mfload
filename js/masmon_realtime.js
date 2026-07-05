@@ -126,7 +126,7 @@ function buildRealtimeMyPayload() {
             isAwakened: !!m.isAwakened
         })),
         items: buildItemCounts(realtimePendingItems),
-        lastSeen: Date.now()
+        lastSeen: getFirebaseServerNow()
     };
 }
 
@@ -171,7 +171,7 @@ async function startRealtimeMatching() {
     let txResult;
     try {
         txResult = await ref.transaction(current => {
-            const now = Date.now();
+            const now = getFirebaseServerNow();
             if (!current) {
                 return {
                     status: 'waiting',
@@ -291,7 +291,7 @@ async function startRandomMatching() {
     let txResult;
     try {
         txResult = await queueRef.transaction(current => {
-            const now = Date.now();
+            const now = getFirebaseServerNow();
             if (!current || current.claimed || (now - current.createdAt) > RANDOM_QUEUE_STALE_MS) {
                 // 誰も待機していない（または古い/使用済みの待機枠）→ 自分が新しい待機枠を作る
                 myMatchId = 'rand_' + now.toString(36) + Math.random().toString(36).slice(2, 8);
@@ -367,7 +367,7 @@ async function startRandomMatching() {
                 status: 'matched',
                 battleType,
                 createdAt: data.createdAt,
-                matchedAt: data.matchedAt || Date.now(),
+                matchedAt: data.matchedAt || getFirebaseServerNow(),
                 isRandomMatch: true,
                 player1: data.player1,
                 player2: data.player2
@@ -394,7 +394,7 @@ async function startRandomMatching() {
             status: 'matched',
             battleType,
             createdAt: queueSnapshotVal.createdAt,
-            matchedAt: queueSnapshotVal.matchedAt || Date.now(),
+            matchedAt: queueSnapshotVal.matchedAt || getFirebaseServerNow(),
             isRandomMatch: true,
             player1: queueSnapshotVal.player1,
             player2: queueSnapshotVal.player2
@@ -519,7 +519,7 @@ function startRealtimeHeartbeat() {
     stopRealtimeHeartbeat();
     realtimeHeartbeatTimer = setInterval(() => {
         if (!realtimeRoomRef || !realtimeMySlot) return;
-        realtimeRoomRef.child(`${realtimeMySlot}/lastSeen`).set(Date.now()).catch(() => {});
+        realtimeRoomRef.child(`${realtimeMySlot}/lastSeen`).set(getFirebaseServerNow()).catch(() => {});
     }, REALTIME_HEARTBEAT_INTERVAL_MS);
 }
 

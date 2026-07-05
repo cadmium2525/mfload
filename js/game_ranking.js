@@ -19,6 +19,8 @@ const firebaseConfig = {
 };
 
 let firebaseDb = null;
+let firebaseServerTimeOffset = 0; // サーバー時刻 - 自端末時刻（各端末の時計のズレを補正するため）
+let firebaseServerTimeOffsetReady = false;
 
 function initFirebase() {
     try {
@@ -26,11 +28,24 @@ function initFirebase() {
             firebase.initializeApp(firebaseConfig);
         }
         firebaseDb = firebase.database();
+        if (!firebaseServerTimeOffsetReady) {
+            firebaseServerTimeOffsetReady = true;
+            // 端末の時計がずれていても、マッチング等の「経過時間」判定を
+            // 全端末共通のサーバー時刻基準で行えるようにする。
+            firebaseDb.ref('.info/serverTimeOffset').on('value', snap => {
+                firebaseServerTimeOffset = snap.val() || 0;
+            });
+        }
         return true;
     } catch (e) {
         console.error('[Firebase]', e);
         return false;
     }
+}
+
+// サーバー時刻を基準とした現在時刻（ミリ秒）。端末間の時計のズレの影響を受けない。
+function getFirebaseServerNow() {
+    return Date.now() + firebaseServerTimeOffset;
 }
 
 async function submitScore(playerName, monsterName, score, difficulty, floor, isClear) {

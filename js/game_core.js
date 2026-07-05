@@ -131,6 +131,9 @@ window.addEventListener('load', () => {
     setRealViewportHeight();
     loadInheritedSkill();
     renderPartnerSelection();
+    // Firebaseのサーバー時刻オフセット取得をできるだけ早く開始しておく
+    // （ランダムマッチング等の「経過時間」判定が端末の時計ズレに影響されないようにするため）
+    if (typeof initFirebase === 'function') initFirebase();
 });
 
 // --- LocalStorageによるスキル継承管理 ---
