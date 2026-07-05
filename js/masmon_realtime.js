@@ -16,8 +16,6 @@
 const REALTIME_HEARTBEAT_INTERVAL_MS = 15000;   // 15秒ごとに生存通知
 const REALTIME_DISCONNECT_TIMEOUT_MS = 60000;   // 対戦中60秒無応答で不戦勝
 const RANDOM_QUEUE_STALE_MS = 20000;            // 20秒以上更新の無い待機枠は無効（相手の離脱等）とみなし上書きする
-const RANDOM_MATCH_ROOM_WAIT_RETRY_MS = 300;     // ランダムマッチ成立直後、ルーム作成が間に合わない場合の再試行間隔
-const RANDOM_MATCH_ROOM_WAIT_MAX_RETRIES = 10;
 
 let realtimeRoomKeyword = null;
 let realtimeRoomRef = null;
@@ -29,7 +27,8 @@ let realtimePendingType = 'solo'; // 'solo' | 'team'
 let realtimePendingItems = [];
 let realtimeIsRandomMatch = false;    // ランダムマッチング（合言葉なし）で成立した対戦かどうか
 let realtimeRandomQueueRef = null;    // 自分がランダムマッチの待機枠を持っている場合の参照（キャンセル時のクリア用）
-let realtimeRandomQueueRoomKey = null; // 自分が発行した待機枠のルームキー（他人に奪われていないか確認用）
+let realtimeRandomQueueRoomKey = null; // 自分が発行した待機枠のマッチID（他人に奪われていないか確認用）
+let realtimeRandomQueueListener = null; // 待機中、random_queueへ相手が来たかを監視するリスナー（player1側のみ使用）
 
 // -----------------------------------------------------
 // 対戦アイテム選択画面 → リアルタイム対戦への橋渡し
@@ -255,8 +254,17 @@ async function startRealtimeMatching() {
 // -----------------------------------------------------
 // ランダムマッチング（合言葉なし）開始
 // 同じ編成タイプ（個人戦/団体戦）で待機している他のブリーダーとその場でマッチングする。
-// キューノード random_queue/{battleType} に「今待機している1組」の情報だけを持たせ、
+// キューノード random_queue/{battleType} に「今待機している1組」の情報を持たせ、
 // トランザクションで「誰もいない→自分が待機枠を作る」「誰かいる→自分が2人目として成立」を判定する。
+//
+// ポイント：待機枠の作成 と マッチング成立（相手情報の書き込み）を
+// 同じ1回のトランザクションで行う。以前は「1人目が待機枠を確保→別の通信で
+// battle_rooms にルームを作成→2人目がそのルームに参加を試みる」という2段階の
+// 処理だったため、1人目側のルーム作成がわずかに遅れただけで2人目の参加が
+// タイムアウトし「対戦相手との接続に失敗しました」になっていた（レースコンディション）。
+// このトランザクション内で相手の有無とマッチング確定を同時に扱うことで、
+// 2人目はトランザクションが成立した時点で既に相手の情報も含めて確定済みとなり、
+// 「相手のルーム作成待ち」自体が発生しなくなる。
 // -----------------------------------------------------
 async function startRandomMatching() {
     const statusEl = document.getElementById('realtime-keyword-status');
@@ -276,30 +284,40 @@ async function startRandomMatching() {
     const myPayload = buildRealtimeMyPayload();
     const battleType = realtimePendingType;
     const queueRef = firebaseDb.ref(`random_queue/${battleType}`);
-    const now = Date.now();
 
-    let myRoomKey = null;
+    let myMatchId = null;
     let iAmFirst = false;
 
     let txResult;
     try {
         txResult = await queueRef.transaction(current => {
+            const now = Date.now();
             if (!current || current.claimed || (now - current.createdAt) > RANDOM_QUEUE_STALE_MS) {
                 // 誰も待機していない（または古い/使用済みの待機枠）→ 自分が新しい待機枠を作る
-                myRoomKey = 'rand_' + now.toString(36) + Math.random().toString(36).slice(2, 8);
+                myMatchId = 'rand_' + now.toString(36) + Math.random().toString(36).slice(2, 8);
                 iAmFirst = true;
-                return { roomKey: myRoomKey, createdAt: now, waitingId: myId, claimed: false };
+                return {
+                    matchId: myMatchId,
+                    createdAt: now,
+                    waitingId: myId,
+                    claimed: false,
+                    battleType,
+                    player1: { ...myPayload, lastSeen: now },
+                    player2: null
+                };
             }
             if (current.waitingId === myId) {
                 // 自分自身が既に待機中（多重タップ等）→ そのまま維持
-                myRoomKey = current.roomKey;
+                myMatchId = current.matchId;
                 iAmFirst = true;
                 return current;
             }
-            // 他の誰かが待機中 → 自分が2人目としてマッチング成立。この待機枠は使用済みにする。
-            myRoomKey = current.roomKey;
+            // 他の誰かが待機中 → この場で自分が2人目として書き込み、マッチングを確定する
+            myMatchId = current.matchId;
             iAmFirst = false;
             current.claimed = true;
+            current.player2 = { ...myPayload, lastSeen: now };
+            current.matchedAt = now;
             return current;
         });
     } catch (e) {
@@ -311,7 +329,7 @@ async function startRandomMatching() {
         return;
     }
 
-    if (!txResult.committed || !myRoomKey) {
+    if (!txResult.committed || !myMatchId) {
         statusEl.textContent = '混み合っています。もう一度お試しください。';
         statusEl.className = 'text-[10px] text-center text-red-400';
         document.getElementById('realtime-keyword-submit-btn').disabled = false;
@@ -319,33 +337,17 @@ async function startRandomMatching() {
         return;
     }
 
-    const roomRef = firebaseDb.ref(`battle_rooms/${myRoomKey}`);
     realtimeIsRandomMatch = true;
+    const queueSnapshotVal = txResult.snapshot.val();
+    const roomRef = firebaseDb.ref(`battle_rooms/${myMatchId}`);
 
     if (iAmFirst) {
-        // 自分が1人目 → 待機枠(ルーム)を作成し、相手が来るのを待つ
+        // 自分が1人目 → 待機枠を確保。相手が同じトランザクションでplayer2を
+        // 書き込んでくれるのを、random_queue自体をリアルタイム監視して待つ。
         realtimeRandomQueueRef = queueRef;
-        realtimeRandomQueueRoomKey = myRoomKey;
+        realtimeRandomQueueRoomKey = myMatchId;
 
-        try {
-            await roomRef.set({
-                status: 'waiting',
-                battleType,
-                createdAt: now,
-                isRandomMatch: true,
-                player1: { ...myPayload, lastSeen: now },
-                player2: null
-            });
-        } catch (e) {
-            console.error('[Firebase] ランダムマッチ ルーム作成エラー:', e);
-            statusEl.textContent = '通信エラーが発生しました。もう一度お試しください。';
-            statusEl.className = 'text-[10px] text-center text-red-400';
-            document.getElementById('realtime-keyword-submit-btn').disabled = false;
-            document.getElementById('realtime-random-match-btn').disabled = false;
-            return;
-        }
-
-        realtimeRoomKeyword = myRoomKey;
+        realtimeRoomKeyword = myMatchId;
         realtimeRoomRef = roomRef;
         realtimeMySlot = 'player1';
 
@@ -355,57 +357,58 @@ async function startRandomMatching() {
         document.getElementById('realtime-waiting-random-text').classList.remove('hidden');
         changeScreen('screen-masmon-realtime-waiting');
 
-        realtimeRoomListener = roomRef.on('value', snap => {
+        realtimeRandomQueueListener = queueRef.on('value', snap => {
             const data = snap.val();
-            if (!data) return;
-            if (data.status === 'matched' && data.player2) {
-                enterRealtimeMatchedScreen(data);
-            }
+            if (!data || data.matchId !== myMatchId || !data.player2) return;
+            queueRef.off('value', realtimeRandomQueueListener);
+            realtimeRandomQueueListener = null;
+
+            const finalRoom = {
+                status: 'matched',
+                battleType,
+                createdAt: data.createdAt,
+                matchedAt: data.matchedAt || Date.now(),
+                isRandomMatch: true,
+                player1: data.player1,
+                player2: data.player2
+            };
+            // 実際の対戦（ターン同期）用に、確定した情報を専用ルームへ書き込む。
+            // 2人目側も同じ内容を書き込むため、どちらが先でも問題ない（冪等）。
+            roomRef.set(finalRoom).catch(e => console.error('[Firebase] ランダムマッチ ルーム確定エラー:', e));
+
+            realtimeRoomListener = roomRef.on('value', snap2 => {
+                const roomData = snap2.val();
+                if (roomData && roomData.status === 'matched' && roomData.player2) {
+                    enterRealtimeMatchedScreen(roomData);
+                }
+            });
         });
     } else {
-        // 自分が2人目 → 相手が作成したルームにplayer2として参加する。
-        // 相手のルーム作成がわずかに遅れている可能性があるため、数回リトライする。
-        let joined = false;
-        let roomData = null;
-
-        for (let attempt = 0; attempt < RANDOM_MATCH_ROOM_WAIT_MAX_RETRIES && !joined; attempt++) {
-            if (attempt > 0) {
-                await new Promise(resolve => setTimeout(resolve, RANDOM_MATCH_ROOM_WAIT_RETRY_MS));
-            }
-            let joinResult;
-            try {
-                joinResult = await roomRef.transaction(current => {
-                    if (!current) return; // ルーム未作成 → 中断してリトライ
-                    if (current.player2) return; // 想定外：既に埋まっている → 中断
-                    current.player2 = { ...myPayload, lastSeen: now };
-                    current.status = 'matched';
-                    current.matchedAt = now;
-                    return current;
-                });
-            } catch (e) {
-                console.error('[Firebase] ランダムマッチ 参加エラー:', e);
-                continue;
-            }
-            if (joinResult.committed) {
-                joined = true;
-                roomData = joinResult.snapshot.val();
-            }
-        }
-
-        if (!joined) {
-            statusEl.textContent = '対戦相手との接続に失敗しました。もう一度お試しください。';
-            statusEl.className = 'text-[10px] text-center text-red-400';
-            document.getElementById('realtime-keyword-submit-btn').disabled = false;
-            document.getElementById('realtime-random-match-btn').disabled = false;
-            return;
-        }
-
-        realtimeRoomKeyword = myRoomKey;
+        // 自分が2人目 → トランザクション成立と同時に相手の情報も確定済み。
+        // 相手のルーム作成を待つ必要がないため、ここで接続失敗は発生しない。
+        realtimeRoomKeyword = myMatchId;
         realtimeRoomRef = roomRef;
         realtimeMySlot = 'player2';
 
+        const finalRoom = {
+            status: 'matched',
+            battleType,
+            createdAt: queueSnapshotVal.createdAt,
+            matchedAt: queueSnapshotVal.matchedAt || Date.now(),
+            isRandomMatch: true,
+            player1: queueSnapshotVal.player1,
+            player2: queueSnapshotVal.player2
+        };
+
+        try {
+            await roomRef.set(finalRoom);
+        } catch (e) {
+            // ルームへの反映に失敗しても、マッチング自体（相手の確定）は既に成立している。
+            console.error('[Firebase] ランダムマッチ ルーム確定エラー:', e);
+        }
+
         startRealtimeHeartbeat();
-        enterRealtimeMatchedScreen(roomData);
+        enterRealtimeMatchedScreen(finalRoom);
     }
 }
 
@@ -414,11 +417,15 @@ async function startRandomMatching() {
 // （キャンセル時に他のプレイヤーが古い待機枠のタイムアウトを待たされないようにするため）
 // -----------------------------------------------------
 async function clearMyRandomQueueEntryIfMine() {
+    if (realtimeRandomQueueListener && realtimeRandomQueueRef) {
+        realtimeRandomQueueRef.off('value', realtimeRandomQueueListener);
+        realtimeRandomQueueListener = null;
+    }
     if (!realtimeRandomQueueRef || !realtimeRandomQueueRoomKey) return;
-    const myRoomKey = realtimeRandomQueueRoomKey;
+    const myMatchId = realtimeRandomQueueRoomKey;
     try {
         await realtimeRandomQueueRef.transaction(current => {
-            if (current && current.roomKey === myRoomKey && !current.claimed) {
+            if (current && current.matchId === myMatchId && !current.claimed) {
                 return null; // 削除：次の人がすぐに新しい待機枠を作れるようにする
             }
             return current; // 既に他の人にマッチングされている等 → そのまま
@@ -540,4 +547,5 @@ function resetRealtimeRoomState() {
     realtimeIsRandomMatch = false;
     realtimeRandomQueueRef = null;
     realtimeRandomQueueRoomKey = null;
+    realtimeRandomQueueListener = null;
 }
