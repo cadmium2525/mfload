@@ -123,6 +123,9 @@ async function fetchRandomOpponentMasmon() {
 }
 
 // --- 他ユーザーのマスモンチーム（最大3体）をランダムに取得（団体戦用） ---
+// 複数のオーナーを探索し、できる限り3体編成できるオーナーを優先して選ぶ
+// （最初に見つかったオーナーがたまたま1体しか登録していない場合に、
+//   団体戦なのに敵が1体しか出ない、という不具合を防ぐため）
 async function fetchRandomOpponentTeam() {
     if (!initFirebase()) return null;
     const myId = getMyPlayerId();
@@ -136,16 +139,24 @@ async function fetchRandomOpponentTeam() {
     if (ownerIds.length === 0) return null;
 
     const shuffled = ownerIds.sort(() => Math.random() - 0.5);
+    let bestList = null;
+
     for (const ownerId of shuffled) {
         const snap = await firebaseDb.ref(`masmons/${ownerId}`).once('value');
         const list = [];
         snap.forEach(child => list.push({ key: child.key, ...child.val() }));
-        if (list.length > 0) {
-            const shuffledList = list.sort(() => Math.random() - 0.5);
-            return shuffledList.slice(0, 3);
+        if (list.length === 0) continue;
+
+        if (!bestList || list.length > bestList.length) {
+            bestList = list;
         }
+        if (bestList.length >= 3) break; // 3体編成できるオーナーが見つかったので探索終了
     }
-    return null;
+
+    if (!bestList) return null;
+
+    const shuffledList = [...bestList].sort(() => Math.random() - 0.5);
+    return shuffledList.slice(0, 3);
 }
 
 // -----------------------------------------------------
@@ -403,7 +414,7 @@ function startMasmonPlayerTurn(isFirstTurn = false) {
 
     if (!isFirstTurn) {
         const e = getEnemyActive();
-        let recovery = Math.floor((p.stats.gutsSpeed || 14) + 30);
+        let recovery = 30;
         if (p.isGyakujoActive) {
             recovery = Math.floor(recovery * 1.2);
         }
@@ -442,7 +453,7 @@ function toggleMasmonSkillButtons(enable) {
     const container = document.getElementById('battle-skills-container');
     container.querySelectorAll('button').forEach(btn => {
         if (enable) {
-            btn.classList.remove('pointer-events-none');
+            btn.classList.remove('pointer-events-none', 'opacity-40');
         } else {
             btn.classList.add('opacity-40', 'pointer-events-none');
         }
@@ -450,7 +461,7 @@ function toggleMasmonSkillButtons(enable) {
     const itemContainer = document.getElementById('battle-items-container');
     itemContainer.querySelectorAll('button').forEach(btn => {
         if (enable) {
-            if (!btn.dataset.depleted) btn.classList.remove('pointer-events-none');
+            if (!btn.dataset.depleted) btn.classList.remove('pointer-events-none', 'opacity-40');
         } else {
             btn.classList.add('opacity-40', 'pointer-events-none');
         }
@@ -584,8 +595,7 @@ function updateMasmonBattleStatsUI() {
         }
     });
 
-    const recoveryVal = Math.floor((p.stats.gutsSpeed || 14) + 30);
-    document.getElementById('turn-guts-notice').textContent = `💡 あなたのガッツ回復力: +${recoveryVal} / ターン`;
+    document.getElementById('turn-guts-notice').textContent = `💡 あなたのガッツ回復力: +30 / ターン`;
 
     updateMasmonStatusEffectUI();
 
@@ -1100,7 +1110,7 @@ function executeMasmonEnemyTurn() {
         e.critBonusTurns--;
     }
 
-    let enemyRecovery = Math.floor((e.stats.gutsSpeed || 14) + 30);
+    let enemyRecovery = 30;
     if (e.isGyakujoActive) {
         enemyRecovery = Math.floor(enemyRecovery * 1.2);
     }
@@ -1304,6 +1314,18 @@ function showMasmonBattleResult(isWin) {
     ACTIVE_BATTLE_MODE = 'adventure'; // モードを元に戻す
     // 育成中バトル用の「攻撃終了」「防御して終了」ボタンを再表示しておく
     document.getElementById('battle-endturn-controls').classList.remove('hidden');
+
+    // マスモン団体戦専用のUI（チームアイコン・持ち込みアイテム欄）を確実に隠し、
+    // 中身もクリアしておく（次に育成中バトルへ入った時に残留表示されるのを防ぐ）
+    const playerTeamIconsEl = document.getElementById('player-team-icons');
+    const enemyTeamIconsEl = document.getElementById('enemy-team-icons');
+    const battleItemsEl = document.getElementById('battle-items-container');
+    playerTeamIconsEl.classList.add('hidden');
+    playerTeamIconsEl.innerHTML = '';
+    enemyTeamIconsEl.classList.add('hidden');
+    enemyTeamIconsEl.innerHTML = '';
+    battleItemsEl.classList.add('hidden');
+    battleItemsEl.innerHTML = '';
 
     const badge = document.getElementById('masmon-result-badge');
     const title = document.getElementById('masmon-result-title');

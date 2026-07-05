@@ -50,8 +50,11 @@ const GAME_STATE = {
 function renderMonsterVisual(containerEl, name, emoji, isAwakened = false) {
     if (!containerEl) return;
 
-    // イラスト読み込みが完了するまでは何も表示しない（絵文字の一瞬表示を防止）
-    containerEl.innerHTML = '';
+    // イラスト読み込みが完了するまでは画像を表示しない（絵文字の一瞬表示を防止）。
+    // ただし呼び出し側が後から追加するバッジ等の子要素（例：団体戦の出撃順①②③）を
+    // 消してしまわないよう、既存の画像要素だけを取り除く（innerHTML全体は上書きしない）。
+    const oldImg = containerEl.querySelector('img.monster-visual-img');
+    if (oldImg) oldImg.remove();
 
     // 名前のクレンジング (中ボス/伝説の邪神などの修飾子やスペース、(強敵)などを除外してファイル名にする)
     let cleanName = name.replace("中ボス：", "").replace("伝説の邪神：", "").split(" ")[0];
@@ -60,11 +63,21 @@ function renderMonsterVisual(containerEl, name, emoji, isAwakened = false) {
     const prefix = isAwakened ? "覚醒" : "";
     const imagePath = `images/${prefix}${cleanName}.png`;
 
+    // このコンテナへの最新のリクエスト先を記録し、古い非同期読込結果が
+    // 後から誤って反映されてしまう（表示が入れ替わる）のを防ぐ
+    containerEl.dataset.visualSrc = imagePath;
+
     const img = new Image();
     img.src = imagePath;
     img.onload = () => {
-        // 画像が存在する場合はimgタグを挿入
-        containerEl.innerHTML = `<img src="${imagePath}" alt="${name}" class="w-full h-full object-contain max-h-24 max-w-24 mx-auto drop-shadow-lg">`;
+        if (containerEl.dataset.visualSrc !== imagePath) return; // 別の画像に切り替わっていた場合は反映しない
+        const oldImgNow = containerEl.querySelector('img.monster-visual-img');
+        if (oldImgNow) oldImgNow.remove();
+        const imgEl = document.createElement('img');
+        imgEl.src = imagePath;
+        imgEl.alt = name;
+        imgEl.className = 'monster-visual-img w-full h-full object-contain max-h-24 max-w-24 mx-auto drop-shadow-lg';
+        containerEl.insertBefore(imgEl, containerEl.firstChild);
     };
     img.onerror = () => {
         console.warn(`[renderMonsterVisual] 画像が見つかりません: ${imagePath}`);

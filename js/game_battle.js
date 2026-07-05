@@ -188,7 +188,7 @@ function toggleSkillButtons(enable) {
     const buttons = container.querySelectorAll('button');
     buttons.forEach(btn => {
         if (enable) {
-            btn.classList.remove('pointer-events-none');
+            btn.classList.remove('pointer-events-none', 'opacity-40');
         } else {
             btn.classList.add('opacity-40', 'pointer-events-none');
         }
@@ -800,26 +800,24 @@ function handleBattleWin() {
 
     const prevStats = { ...p.stats };
 
-    const finalUpPow = getDiminishedVal(p.stats.pow, upPow);
-    const finalUpInt = getDiminishedVal(p.stats.int, upInt);
-    const finalUpSpd = getDiminishedVal(p.stats.spd, upSpd);
-    const finalUpMaxLife = getDiminishedVal(p.stats.maxLife, upMaxLife);
-
-    p.stats.pow += finalUpPow;
-    p.stats.int += finalUpInt;
-    p.stats.spd += finalUpSpd;
-    p.stats.maxLife += finalUpMaxLife; 
+    // 注：育成時（修行イベント等）のステータス成長には閾値による段階的な
+    // 上昇制限（getDiminishedVal）を設けているが、バトル勝利後のステータス上昇は
+    // その設計を適用せず、常に算出した値がそのまま上昇する
+    p.stats.pow += upPow;
+    p.stats.int += upInt;
+    p.stats.spd += upSpd;
+    p.stats.maxLife += upMaxLife; 
     p.stats.life = Math.min(p.stats.maxLife, p.stats.life + upLifeHeal); 
 
     GAME_STATE.battleGain = {
         prev: prevStats,
         next: { ...p.stats },
         diff: {
-            maxLife: finalUpMaxLife,
+            maxLife: upMaxLife,
             lifeHeal: upLifeHeal,
-            pow: finalUpPow,
-            int: finalUpInt,
-            spd: finalUpSpd
+            pow: upPow,
+            int: upInt,
+            spd: upSpd
         }
     };
 

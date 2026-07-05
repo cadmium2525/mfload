@@ -304,9 +304,8 @@ function renderRealtimeBattleUI(state) {
         turnIndicator.classList.add('hidden');
     }
 
-    const recoveryVal = Math.floor((me.gutsSpeed || 14) + 30);
     document.getElementById('turn-guts-notice').textContent = isMyTurn
-        ? `💡 あなたのターンです！行動を選んでください（GUTS回復:+${recoveryVal}）`
+        ? `💡 あなたのターンです！行動を選んでください（GUTS回復:+30）`
         : `⏳ 対戦相手の行動を待っています…`;
 
     renderRealtimeBattleSkills(state);
@@ -994,7 +993,7 @@ async function performRealtimeAction(action) {
                 } else {
                     oppNowActive.isConfusedThisTurn = false;
                 }
-                let recovery = Math.floor((oppNowActive.gutsSpeed || 14) + 30);
+                let recovery = 30;
                 if (oppNowActive.isGyakujoActive) {
                     recovery = Math.floor(recovery * 1.2);
                 }
@@ -1208,7 +1207,12 @@ function resetRealtimeBattleClientState() {
     document.getElementById('realtime-turn-indicator').classList.add('hidden');
     document.getElementById('realtime-disconnect-banner').classList.add('hidden');
     document.getElementById('player-team-icons').classList.add('hidden');
+    document.getElementById('player-team-icons').innerHTML = '';
     document.getElementById('enemy-team-icons').classList.add('hidden');
+    document.getElementById('enemy-team-icons').innerHTML = '';
+    const rtBattleItemsEl = document.getElementById('battle-items-container');
+    rtBattleItemsEl.classList.add('hidden');
+    rtBattleItemsEl.innerHTML = '';
     const beginBtn = document.getElementById('realtime-begin-battle-btn');
     if (beginBtn) {
         beginBtn.disabled = false;
