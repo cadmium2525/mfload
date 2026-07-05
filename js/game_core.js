@@ -59,6 +59,14 @@ function renderMonsterVisual(containerEl, name, emoji, isAwakened = false, isPar
     const oldImg = containerEl.querySelector('img.monster-visual-img');
     if (oldImg) oldImg.remove();
 
+    // HTML側に初期表示用のプレースホルダー絵文字（例：🍪 👁️ 💬 など）が
+    // テキストノードとして直接残っている場合、画像読み込み後にそれと並んで
+    // 表示されてしまう（イラストと絵文字が並んで表示されるバグ）ため、
+    // 子要素（バッジ等）は残しつつ、直下のテキストノードだけを除去する。
+    Array.from(containerEl.childNodes).forEach(node => {
+        if (node.nodeType === Node.TEXT_NODE) node.remove();
+    });
+
     // 名前のクレンジング (中ボス/伝説の邪神などの修飾子やスペース、(強敵)などを除外してファイル名にする)
     let cleanName = name.replace("中ボス：", "").replace("伝説の邪神：", "").split(" ")[0];
     cleanName = cleanName.replace(/\s*\(強敵\)\s*/g, "");
