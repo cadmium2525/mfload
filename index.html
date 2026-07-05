@@ -509,15 +509,6 @@
                         <p id="gameover-hint-text" class="text-[10px] text-gray-300 leading-relaxed"></p>
                     </div>
 
-                    <!-- ==================== スキル継承セクション (LocalStorage連動) ==================== -->
-                    <div id="heritage-section" class="border-t border-amber-800 pt-3 text-left hidden">
-                        <p class="text-xs text-cyan-400 font-bold mb-2">🧬 技の継承（次回プレイに1つ引き継ぎ可能！）</p>
-                        <p class="text-[10px] text-gray-400 mb-2">今回覚えた追加技から、次回初期スキルに加える技を1つ選択して終了してください：</p>
-                        <div id="heritage-skills-list" class="grid grid-cols-2 gap-2">
-                            <!-- JSで修行獲得技ボタンを生成 -->
-                        </div>
-                    </div>
-
                     <!-- ==================== マスモン登録セクション (クリア時のみ・Firebase連動) ==================== -->
                     <div id="masmon-save-section" class="border-t border-amber-800 pt-3 text-left hidden space-y-2">
                         <p class="text-xs text-purple-400 font-bold">🐾 マスモン登録（他のブリーダーと戦わせよう！）</p>
@@ -529,6 +520,15 @@
                             マスモンとして保存する
                         </button>
                         <p id="masmon-save-status" class="text-[10px] text-center"></p>
+                    </div>
+
+                    <!-- ==================== スキル継承セクション (LocalStorage連動) ==================== -->
+                    <div id="heritage-section" class="border-t border-amber-800 pt-3 text-left hidden">
+                        <p class="text-xs text-cyan-400 font-bold mb-2">🧬 技の継承（次回プレイに1つ引き継ぎ可能！）</p>
+                        <p class="text-[10px] text-gray-400 mb-2">今回覚えた追加技から、次回初期スキルに加える技を1つ選択して終了してください：</p>
+                        <div id="heritage-skills-list" class="grid grid-cols-2 gap-2">
+                            <!-- JSで修行獲得技ボタンを生成 -->
+                        </div>
                     </div>
                 </div>
 
