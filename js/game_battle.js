@@ -1071,8 +1071,8 @@ function endGame(isClear) {
     const isMostGameOver = !isClear && GAME_STATE.floor === 30 && GAME_STATE.isBossBattle;
     GAME_STATE.lastGameWasClear = isClear || isMostGameOver;
 
-    // クリア（または30F到達扱い）の場合、今回入手した装備アイテムをブリーダーIDへ永続登録する
-    if (GAME_STATE.lastGameWasClear && typeof saveAcquiredEquipmentToBreeder === 'function') {
+    // 装備アイテムの永続登録は「本当にクリアした場合」のみ許可する（30F到達扱いの敗北では登録しない）
+    if (isClear && typeof saveAcquiredEquipmentToBreeder === 'function') {
         saveAcquiredEquipmentToBreeder().catch(() => {});
     }
 
