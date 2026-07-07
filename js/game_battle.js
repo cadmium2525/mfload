@@ -69,6 +69,7 @@ function setupBattle(isBoss = false) {
         name: enemyTemplate.name + (GAME_STATE.difficulty === 'hard' ? ' (強敵)' : ''),
         emoji: enemyTemplate.emoji,
         type: enemyTemplate.type,
+        aura: getRandomAuraKey(), // 敵モンスターにはランダムでオーラを付与
         guts: 50,
         weakenTurns: 0,
         confuseTurns: 0,
@@ -109,6 +110,14 @@ function setupBattle(isBoss = false) {
 
     const log = document.getElementById('battle-log');
     log.innerHTML = `<div>${GAME_STATE.enemy.type}の ${GAME_STATE.enemy.name} が現れた！</div>`;
+
+    // オーラバッジの表示更新（味方は儀式で決めたオーラ、敵はランダム付与されたオーラ）
+    renderAuraBadge('player-aura-badge', GAME_STATE.player.aura);
+    renderAuraBadge('enemy-aura-badge', GAME_STATE.enemy.aura);
+    if (GAME_STATE.player.aura && GAME_STATE.enemy.aura) {
+        const aura = AURA_TYPES[GAME_STATE.player.aura];
+        addLog(`✨ あなたのオーラ${aura.emoji}${aura.name}と、相手のオーラ${AURA_TYPES[GAME_STATE.enemy.aura].emoji}${AURA_TYPES[GAME_STATE.enemy.aura].name}が共鳴する…`);
+    }
 
     GAME_STATE.player.guts = 50; 
     updateBattleStatsUI();
@@ -466,7 +475,8 @@ function executePlayerSkill(skKey) {
                 const isPow = sk.type === 'pow';
                 // 衰弱状態（わらわら等で受けた場合）を反映したステータスを使用する
                 const attackerStat = getWeakenedStat(p, isPow ? p.stats.pow : p.stats.int);
-                const defenderStat = e.stats.def;
+                // 丈夫さ強化：ダメージ計算で使用する丈夫さは1.5倍して扱う
+                const defenderStat = e.stats.def * 1.5;
                 
                 const statCap = Math.max(30, defenderStat * 2.5);
                 let effectiveAttacker = attackerStat;
@@ -502,6 +512,10 @@ function executePlayerSkill(skKey) {
                     damage = Math.floor(damage * 1.2);
                     extraDmgMsg += " (天河天翔×1.2)";
                 }
+                if (isAuraAdvantageous(p.aura, e.aura)) {
+                    damage = Math.floor(damage * 1.5);
+                    extraDmgMsg += ` (オーラ相性${AURA_TYPES[p.aura].emoji}→${AURA_TYPES[e.aura].emoji}×1.5)`;
+                }
                 let isCrit = Math.random() < 0.10;
                 if (isCrit) {
                     damage = Math.floor(damage * 1.5);
@@ -530,7 +544,9 @@ function executePlayerSkill(skKey) {
                 }
 
                 if (finalGutsDown > 0) {
-                    const actualGutsDown = Math.min(e.guts, finalGutsDown);
+                    // 丈夫さ強化：丈夫さが高いほど受けるガッツダウン量を軽減する
+                    const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(e.stats.def));
+                    const actualGutsDown = Math.min(e.guts, mitigatedGutsDown);
                     e.guts = Math.max(0, e.guts - actualGutsDown);
                     addLog(`さらに！相手のガッツを ${actualGutsDown} 奪い取った！${GAME_STATE.isGyakujoActive ? " (逆上×1.2)" : ""} (現在: ${Math.floor(e.guts)})`);
                 }
@@ -686,7 +702,8 @@ function executeEnemyTurn() {
                     if (isHit) {
                         const isPow = sk.type === 'pow';
                         const attackerStat = getWeakenedStat(e, isPow ? e.stats.pow : e.stats.int);
-                        const defenderStat = p.stats.def;
+                        // 丈夫さ強化：ダメージ計算で使用する丈夫さは1.5倍して扱う
+                        const defenderStat = p.stats.def * 1.5;
 
                         const statCap = Math.max(30, defenderStat * 2.5);
                         let effectiveAttacker = attackerStat;
@@ -710,13 +727,18 @@ function executeEnemyTurn() {
                         if (e.permaForceBoostActive) {
                             damage = Math.floor(damage * 1.2);
                         }
+                        let enemyAuraMsg = "";
+                        if (isAuraAdvantageous(e.aura, p.aura)) {
+                            damage = Math.floor(damage * 1.5);
+                            enemyAuraMsg = ` (オーラ相性${AURA_TYPES[e.aura].emoji}→${AURA_TYPES[p.aura].emoji}×1.5)`;
+                        }
 
                         // 九重神眼等のシールドによる被ダメージ吸収
                         const shieldResult = applyShieldAbsorption(p, damage);
                         damage = shieldResult.finalDamage;
 
                         p.stats.life = Math.max(0, p.stats.life - damage);
-                        addLog(`${p.name} は ${damage} ダメージを受けた！`);
+                        addLog(`${p.name} は ${damage} ダメージを受けた！${enemyAuraMsg}`);
                         if (shieldResult.absorbed > 0) {
                             addLog(`🛡️ ${p.name} のシールドが ${shieldResult.absorbed} のダメージを吸収した！(シールド残量: ${p.shieldValue})`);
                         }
@@ -741,7 +763,9 @@ function executeEnemyTurn() {
                         }
                         
                         if (sk.gutsDown > 0) {
-                            const actualGutsDown = Math.min(p.guts, sk.gutsDown);
+                            // 丈夫さ強化：丈夫さが高いほど受けるガッツダウン量を軽減する
+                            const mitigatedGutsDown = Math.floor(sk.gutsDown * getGutsDownMitigation(p.stats.def));
+                            const actualGutsDown = Math.min(p.guts, mitigatedGutsDown);
                             p.guts = Math.max(0, p.guts - actualGutsDown);
                             addLog(`さらに！ ${p.name} のガッツが ${actualGutsDown} 奪われた！ (現在: ${Math.floor(p.guts)})`);
 
@@ -846,12 +870,24 @@ function handleBattleWin() {
         GAME_STATE.items.push(droppedItem);
     }
 
+    // --- 装備アイテムの低確率ドロップ（通常アイテムとは独立した抽選） ---
+    // ノーマル/ハードモードで出現する装備の種類が異なり、ハードモードで周回する価値を持たせる。
+    let droppedEquipment = null;
+    const equipDropRate = GAME_STATE.isBossBattle ? 0.20 : 0.08;
+    if (Math.random() < equipDropRate) {
+        const mode = GAME_STATE.difficulty === 'hard' ? 'hard' : 'normal';
+        droppedEquipment = rollEquipmentInstance(mode);
+        if (droppedEquipment) {
+            GAME_STATE.acquiredEquipment.push(droppedEquipment);
+        }
+    }
+
     setTimeout(() => {
-        showBattleResultScreen(droppedItem);
+        showBattleResultScreen(droppedItem, droppedEquipment);
     }, 1800);
 }
 
-function showBattleResultScreen(droppedItem) {
+function showBattleResultScreen(droppedItem, droppedEquipment) {
     const p = GAME_STATE.player;
     const gain = GAME_STATE.battleGain;
 
@@ -889,6 +925,19 @@ function showBattleResultScreen(droppedItem) {
         document.getElementById('dropped-item-desc').textContent = droppedItem.desc;
     } else {
         dropDisplay.classList.add('hidden');
+    }
+
+    const equipDropDisplay = document.getElementById('battle-equipment-drop-display');
+    if (equipDropDisplay) {
+        if (droppedEquipment) {
+            const base = EQUIPMENT_DB[droppedEquipment.equipId];
+            equipDropDisplay.classList.remove('hidden');
+            document.getElementById('dropped-equipment-icon').textContent = base.icon;
+            document.getElementById('dropped-equipment-name').textContent = getEquipmentDisplayName(droppedEquipment);
+            document.getElementById('dropped-equipment-desc').textContent = getEquipmentDisplayDesc(droppedEquipment);
+        } else {
+            equipDropDisplay.classList.add('hidden');
+        }
     }
 
     changeScreen('screen-battle-result');
@@ -1021,6 +1070,11 @@ function endGame(isClear) {
     // 30F（モスト戦）でのゲームオーバーは「実質到達」として扱い、マスモン登録を許可する
     const isMostGameOver = !isClear && GAME_STATE.floor === 30 && GAME_STATE.isBossBattle;
     GAME_STATE.lastGameWasClear = isClear || isMostGameOver;
+
+    // クリア（または30F到達扱い）の場合、今回入手した装備アイテムをブリーダーIDへ永続登録する
+    if (GAME_STATE.lastGameWasClear && typeof saveAcquiredEquipmentToBreeder === 'function') {
+        saveAcquiredEquipmentToBreeder().catch(() => {});
+    }
 
     document.getElementById('result-difficulty').textContent = GAME_STATE.difficulty.toUpperCase();
     document.getElementById('result-final-floor').textContent = `${GAME_STATE.floor - (isClear ? 1 : 0)} / 30`;

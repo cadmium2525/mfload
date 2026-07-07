@@ -285,7 +285,10 @@ async function deleteMasmon(key) {
 // -----------------------------------------------------
 // マスモン情報詳細モーダル（マイマスモンのマスモンをタップすると表示）
 // -----------------------------------------------------
+let currentDetailMasmon = null; // 装備アイテム一覧から戻ってきた際に再表示するため保持する
+
 function openMasmonDetailModal(m) {
+    currentDetailMasmon = m;
     const iconWrap = document.getElementById('masmon-detail-icon');
     iconWrap.innerHTML = '';
     renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened, true);
@@ -306,6 +309,8 @@ function openMasmonDetailModal(m) {
 
     document.getElementById('masmon-detail-difficulty').textContent = m.difficulty === 'hard' ? 'HARD' : 'NORMAL';
     document.getElementById('masmon-detail-floor').textContent = `${m.floor}F到達`;
+
+    updateMasmonDetailEquipDisplay(m);
 
     const skillsContainer = document.getElementById('masmon-detail-skills');
     skillsContainer.innerHTML = '';
@@ -340,4 +345,24 @@ function openMasmonDetailModal(m) {
 
 function closeMasmonDetailModal() {
     document.getElementById('masmon-detail-modal').classList.add('hidden');
+}
+
+// 装備アイテムセクションの表示更新（未装備の場合は「未装備」を表示）
+function updateMasmonDetailEquipDisplay(m) {
+    const iconEl = document.getElementById('masmon-detail-equip-icon');
+    const nameEl = document.getElementById('masmon-detail-equip-name');
+    const descEl = document.getElementById('masmon-detail-equip-desc');
+    if (!iconEl || !nameEl || !descEl) return;
+
+    const eq = m.equip;
+    const base = eq ? EQUIPMENT_DB[eq.equipId] : null;
+    if (base) {
+        iconEl.textContent = base.icon;
+        nameEl.textContent = `${base.name}（${base.rarity}）`;
+        descEl.textContent = getEquipmentDisplayDesc(eq);
+    } else {
+        iconEl.textContent = '🚫';
+        nameEl.textContent = '未装備';
+        descEl.textContent = '';
+    }
 }

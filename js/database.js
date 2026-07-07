@@ -1,3 +1,29 @@
+// =====================================================
+// オーラ属性データベース（新要素）
+// 育成開始時の「オーラの儀式」でプレイヤーのモンスターに付与し、
+// 育成中バトル(game_battle.js)の敵にはランダムで付与する。
+// 相性: 赤→緑→黄→青→赤 の順に有利（beatsで示す色に対して1.5倍ダメージ）
+// =====================================================
+const AURA_TYPES = {
+    red:    { key: 'red',    name: '赤',  emoji: '🔴', colorClass: 'bg-red-500',    textClass: 'text-red-400',    beats: 'green' },
+    green:  { key: 'green',  name: '緑',  emoji: '🟢', colorClass: 'bg-green-500',  textClass: 'text-green-400',  beats: 'yellow' },
+    yellow: { key: 'yellow', name: '黄',  emoji: '🟡', colorClass: 'bg-yellow-400', textClass: 'text-yellow-300', beats: 'blue' },
+    blue:   { key: 'blue',   name: '青',  emoji: '🔵', colorClass: 'bg-blue-500',   textClass: 'text-blue-400',   beats: 'red' }
+};
+
+// --- 攻撃側オーラが防御側オーラに対して有利かどうかを判定する ---
+function isAuraAdvantageous(attackerAuraKey, defenderAuraKey) {
+    if (!attackerAuraKey || !defenderAuraKey) return false;
+    const attackerAura = AURA_TYPES[attackerAuraKey];
+    return !!attackerAura && attackerAura.beats === defenderAuraKey;
+}
+
+// --- 4色からランダムに1つオーラを選ぶ（敵モンスターへの付与用） ---
+function getRandomAuraKey() {
+    const keys = Object.keys(AURA_TYPES);
+    return keys[Math.floor(Math.random() * keys.length)];
+}
+
 // --- モンスターデータベース ---
 const MONSTER_TEMPLATES = {
     mochi: {
@@ -147,6 +173,15 @@ function getGutsDefenseModifier(guts) {
     const base = 50;
     const diff = guts - base;
     return 1.0 - (diff * 0.01); // 0.5倍（ガッツ100）〜 1.5倍（ガッツ0）
+}
+
+// --- 丈夫さによるガッツダウン軽減計算ヘルパー ---
+// 丈夫さ(def)が高いほど、受けるガッツダウン量を逓減方式で軽減する（下限は無し＝完全ゼロにはならない）。
+// def=0 で軽減なし(倍率1.0)、defが増えるほど倍率が緩やかに1.0未満へ近づいていく。
+// 例: def=40 → 約0.83倍(-17%) / def=65 → 約0.75倍(-25%) / def=150 → 約0.57倍(-43%)
+function getGutsDownMitigation(defStat) {
+    const def = Math.max(0, defStat || 0);
+    return 100 / (100 + def * 0.5);
 }
 
 // --- ダメージランク判定ヘルパー ---
@@ -300,6 +335,112 @@ const ITEMS_DB = {
     compass_event: { id: 'compass_event', name: '運命のコンパス', icon: '🧭', desc: '使用すると、次の探索先を自分で自由に選択できる。', type: 'compass', target: 'any' }
 };
 
+// =====================================================
+// --- 装備アイテムデータベース ---
+// 育成中の「宝箱発見」イベントやバトル終了後の低確率ドロップで入手する。
+// クリア時にブリーダーID（getMyPlayerId）に紐づけて保存され、PvP（マスモン対戦）で
+// 自分のマスモンに1つ装備させることができる。
+// mode: 'normal' はノーマルモード産、'hard' はハードモード産（周回のご褒美として
+//       ノーマルより高い数値・強力な特殊効果を持つ）。
+// type: 'stat'    -> statKey のステータスが range[0]～range[1] の間でランダムに上昇する
+//       'special' -> 戦闘中に特殊効果 (effect) が発動する
+// =====================================================
+const EQUIPMENT_DB = {
+    // ---------- ノーマルモード産 ----------
+    ember_claw:      { id: 'ember_claw',      name: '炎の爪',          icon: '🔥', rarity: '★★☆', mode: 'normal', type: 'stat', statKey: 'pow',     range: [20, 25], desc: 'ちからが上昇する牙状の装備。' },
+    aqua_scale:      { id: 'aqua_scale',      name: '水鱗のよろい',     icon: '💧', rarity: '★★☆', mode: 'normal', type: 'stat', statKey: 'def',     range: [18, 24], desc: '丈夫さが上昇する鱗のよろい。' },
+    wind_charm:      { id: 'wind_charm',      name: '風切りのお守り',   icon: '🍃', rarity: '★★☆', mode: 'normal', type: 'stat', statKey: 'spd',     range: [15, 20], desc: '回避が上昇するお守り。' },
+    sage_ring:       { id: 'sage_ring',       name: '賢者の指輪',       icon: '💍', rarity: '★★☆', mode: 'normal', type: 'stat', statKey: 'int',     range: [20, 25], desc: 'かしこさが上昇する指輪。' },
+    hawk_eye_lens:   { id: 'hawk_eye_lens',   name: '鷹の目レンズ',     icon: '🔍', rarity: '★☆☆', mode: 'normal', type: 'stat', statKey: 'hit',     range: [15, 20], desc: '命中が上昇するレンズ。' },
+    vital_amulet:    { id: 'vital_amulet',    name: '生命のお守り',     icon: '💗', rarity: '★☆☆', mode: 'normal', type: 'stat', statKey: 'maxLife', range: [30, 40], desc: '最大ライフが上昇するお守り。' },
+    guardian_pendant:{ id: 'guardian_pendant',name: '守護のペンダント', icon: '🛡️', rarity: '★★★', mode: 'normal', type: 'special', effect: 'lifesaver', healPct: 0.3, desc: '残りライフが最大ライフの3割を切った時、1度だけ最大ライフの3割を回復する。' },
+
+    // ---------- ハードモード産（ノーマルより強力・周回価値づけ） ----------
+    dragon_fang:     { id: 'dragon_fang',     name: '竜牙の爪',        icon: '🐉', rarity: '★★★', mode: 'hard', type: 'stat', statKey: 'pow',     range: [30, 40], desc: 'ちからが大きく上昇する竜の牙。' },
+    obsidian_armor:  { id: 'obsidian_armor',  name: '黒曜の鎧',        icon: '🗿', rarity: '★★★', mode: 'hard', type: 'stat', statKey: 'def',     range: [30, 38], desc: '丈夫さが大きく上昇する漆黒の鎧。' },
+    phantom_veil:    { id: 'phantom_veil',    name: '幻影のヴェール',   icon: '🌫️', rarity: '★★★', mode: 'hard', type: 'stat', statKey: 'spd',     range: [28, 35], desc: '回避が大きく上昇するヴェール。' },
+    archsage_crown:  { id: 'archsage_crown',  name: '大賢者の冠',       icon: '👑', rarity: '★★★', mode: 'hard', type: 'stat', statKey: 'int',     range: [32, 40], desc: 'かしこさが大きく上昇する冠。' },
+    true_strike_lens:{ id: 'true_strike_lens',name: '真眼のレンズ',     icon: '🎯', rarity: '★★☆', mode: 'hard', type: 'stat', statKey: 'hit',     range: [25, 32], desc: '命中が大きく上昇するレンズ。' },
+    titan_heart:     { id: 'titan_heart',     name: '巨神の心臓',       icon: '❤️', rarity: '★★★', mode: 'hard', type: 'stat', statKey: 'maxLife', range: [60, 80], desc: '最大ライフが大きく上昇する秘宝。' },
+    phoenix_feather: { id: 'phoenix_feather', name: '不死鳥の羽根',     icon: '🪶', rarity: '★★★', mode: 'hard', type: 'special', effect: 'lifesaver', healPct: 0.4, desc: '残りライフが最大ライフの3割を切った時、1度だけ最大ライフの4割を回復する。' }
+};
+
+// --- 装備アイテムの入手：指定モードのプールからランダムに1つ選び、ランダム個体値を持つ「所持インスタンス」を生成する ---
+// 同じ名前の装備でも取得時にランダムで数値が変動する（例：炎の爪：ちから20～25アップ）
+function rollEquipmentInstance(mode) {
+    const pool = Object.values(EQUIPMENT_DB).filter(e => e.mode === mode);
+    if (pool.length === 0) return null;
+    const base = pool[Math.floor(Math.random() * pool.length)];
+
+    const instance = {
+        instanceId: 'eq_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+        equipId: base.id,
+        acquiredAt: Date.now(),
+        favoriteTags: { p1: false, p2: false, p3: false, p4: false, p5: false } // お気に入り登録（5パターン）
+    };
+
+    if (base.type === 'stat') {
+        const [min, max] = base.range;
+        instance.rolledValue = Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    return instance;
+}
+
+// --- 装備インスタンスの表示名（レア度込み） ---
+function getEquipmentDisplayName(instance) {
+    const base = EQUIPMENT_DB[instance.equipId];
+    if (!base) return '不明な装備';
+    return `${base.name}（レア度${base.rarity}）`;
+}
+
+// --- 装備インスタンスの効果説明文（ランダム数値を反映） ---
+function getEquipmentDisplayDesc(instance) {
+    const base = EQUIPMENT_DB[instance.equipId];
+    if (!base) return '';
+    if (base.type === 'stat') {
+        return `${getStatLabel(base.statKey)} +${instance.rolledValue} アップ`;
+    }
+    return base.desc;
+}
+
+// --- 装備がユニットのステータスに与えるボーナス（{pow,int,hit,spd,def,maxLife}）を取得 ---
+function getEquipmentStatBonuses(instance) {
+    const bonuses = { pow: 0, int: 0, hit: 0, spd: 0, def: 0, maxLife: 0 };
+    if (!instance) return bonuses;
+    const base = EQUIPMENT_DB[instance.equipId];
+    if (!base || base.type !== 'stat') return bonuses;
+    bonuses[base.statKey] = instance.rolledValue || 0;
+    return bonuses;
+}
+
+// --- 装備の特殊効果（残りライフ3割切りで1度だけ回復、等）判定・適用ヘルパー ---
+// 育成中バトル／マスモンCPU対戦／リアルタイム対戦の3系統から共通で呼び出す。
+// unit: equippedItem（装備インスタンス）と equipLifesaverUsed フラグを持つ想定。
+// ライフフィールドの構造差（stats.life か life か）を吸収して両対応させる。
+// 戻り値: 発動した場合のログメッセージ（未発動なら null）
+function checkAndApplyEquipmentLifesaverEffect(unit) {
+    if (!unit || !unit.equippedItem || unit.equipLifesaverUsed) return null;
+    const base = EQUIPMENT_DB[unit.equippedItem.equipId];
+    if (!base || base.effect !== 'lifesaver') return null;
+
+    const hasNestedStats = !!unit.stats;
+    const life = hasNestedStats ? unit.stats.life : unit.life;
+    const maxLife = hasNestedStats ? unit.stats.maxLife : unit.maxLife;
+    if (life <= 0 || life >= maxLife * 0.3) return null;
+
+    const healAmount = Math.floor(maxLife * base.healPct);
+    const newLife = Math.min(maxLife, life + healAmount);
+    if (hasNestedStats) {
+        unit.stats.life = newLife;
+    } else {
+        unit.life = newLife;
+    }
+    unit.equipLifesaverUsed = true;
+
+    return `✨ ${unit.name} の【${base.name}】が発動！最大ライフの${Math.floor(base.healPct * 100)}%（${healAmount}）を回復した！`;
+}
+
 // --- 敵テンプレート (種族反映) ---
 const ENEMY_TEMPLATES = [
     { name: 'ハム', emoji: '🐇', type: 'ハム種', maxLife: 90, pow: 25, int: 20, hit: 40, spd: 45, def: 20, skills: ['shippobinta'] },
@@ -429,6 +570,24 @@ const GENERAL_EVENTS = [
                 }
             }
         ]
+    }
+];
+
+// --- 宝箱発見イベント（装備アイテム入手）演出データ ---
+// 実際の抽選・付与処理は setupTreasureEvent()（game_adventure.js）が行う。
+// ここでは選択肢のラベル・演出文言のみを保持する。
+const TREASURE_EVENTS = [
+    {
+        title: '古びた宝箱を発見！',
+        visual: '🎁',
+        openText: '宝箱を開けてみる',
+        leaveText: 'そっとしておく（ライフ20回復）'
+    },
+    {
+        title: '光る祭壇の上の宝箱',
+        visual: '⛩️',
+        openText: '祭壇の宝箱を開ける',
+        leaveText: '触れずに立ち去る（ライフ20回復）'
     }
 ];
 

@@ -117,18 +117,19 @@ async function initializeRealtimeBattleState() {
 
 function convertRoomMasmonToRealtimeUnit(masmon) {
     const s = masmon.stats;
+    const equipBonus = getEquipmentStatBonuses(masmon.equip);
     return {
         name: masmon.name,
         emoji: masmon.emoji,
         monsterBaseName: masmon.monsterBaseName || masmon.name,
         isAwakened: !!masmon.isAwakened,
-        life: s.maxLife,
-        maxLife: s.maxLife,
-        pow: s.pow,
-        int: s.int,
-        hit: s.hit,
-        spd: s.spd,
-        def: s.def,
+        life: s.maxLife + equipBonus.maxLife,
+        maxLife: s.maxLife + equipBonus.maxLife,
+        pow: s.pow + equipBonus.pow,
+        int: s.int + equipBonus.int,
+        hit: s.hit + equipBonus.hit,
+        spd: s.spd + equipBonus.spd,
+        def: s.def + equipBonus.def,
         gutsSpeed: s.gutsSpeed || 14,
         guts: 50,
         critBonusTurns: 0,
@@ -146,6 +147,8 @@ function convertRoomMasmonToRealtimeUnit(masmon) {
         dodgeNextGuaranteed: false, // 陽炎等で得る「次の敵攻撃を確実に回避」フラグ
         permaForceBoostActive: false, // 天河天翔等で得る「今後のダメージ永続アップ」フラグ
         isConfusedThisTurn: false, // このターンの行動が混乱によって失敗するか（ターン開始時に決定）
+        equippedItem: masmon.equip || null,  // 装備している装備アイテムインスタンス（PvP専用）
+        equipLifesaverUsed: false,           // 装備の特殊効果を使用済みか
         skills: [...(masmon.skills || [])],
         skillEnhancements: JSON.parse(JSON.stringify(masmon.skillEnhancements || {}))
     };
@@ -529,8 +532,10 @@ function renderRealtimeBattleSkills(state) {
 
     const mySlot = REALTIME_BATTLE.mySlot;
     const me = getRealtimeActiveUnit(state, mySlot);
+    const opp = getRealtimeActiveUnit(state, REALTIME_BATTLE.oppSlot);
     const isMyTurn = state.status === 'active' && state.turnOwner === mySlot && !REALTIME_BATTLE.actionInProgress;
     const gutsVal = Math.floor(me.guts);
+    const gutsModsForHit = getGutsModifiers(gutsVal);
 
     me.skills.forEach(skKey => {
         const sk = getRealtimeEffectiveSkill(me, skKey);
@@ -587,9 +592,19 @@ function renderRealtimeBattleSkills(state) {
             ? `<span class="text-[8px] bg-purple-900 text-purple-200 px-1 py-0.5 rounded font-bold ml-1">⚔️Lv.${enh.level}</span>`
             : '';
 
-        const hitRateDisplay = (sk.type === 'heal' || sk.type.startsWith('buff'))
-            ? `<span class="text-emerald-700 text-[9px] font-bold">必中</span>`
-            : `<span class="${style.textIntensity} text-[9px] font-bold font-mono">命中:${sk.hitRate}%</span>`;
+        let hitRateDisplay;
+        if (sk.type === 'heal' || sk.type.startsWith('buff')) {
+            hitRateDisplay = `<span class="text-emerald-700 text-[9px] font-bold">必中</span>`;
+        } else if (sk.hitRate === 100) {
+            hitRateDisplay = `<span class="${style.textIntensity} text-[9px] font-bold font-mono">命中:必中</span>`;
+        } else if (opp) {
+            let actualHitForIcon = Math.max(10, Math.min(99, (sk.hitRate + gutsModsForHit.hitMod) + (me.hit - opp.spd) * 0.5));
+            if (me.isShuchuActive) actualHitForIcon = Math.min(99, actualHitForIcon * 1.5);
+            hitRateDisplay = `<span class="${style.textIntensity} text-[9px] font-bold font-mono">命中:${Math.round(actualHitForIcon)}%</span>`;
+        } else {
+            const actualHitForIcon = Math.max(10, Math.min(99, sk.hitRate + gutsModsForHit.hitMod));
+            hitRateDisplay = `<span class="${style.textIntensity} text-[9px] font-bold font-mono">命中:${Math.round(actualHitForIcon)}%</span>`;
+        }
 
         btn.innerHTML = `
             <div class="flex justify-between items-center w-full">
@@ -784,6 +799,19 @@ function findFirstAliveIdx(teamObj) {
     return -1;
 }
 
+// --- 行動送信中、技・防御・アイテム・交代ボタンをまとめて無効化する（リアルタイム対戦専用） ---
+// CPU対戦用の toggleMasmonSkillButtons() はここでは使わない
+// （MASMON_BATTLE_STATE に依存しており、リアルタイム対戦では未初期化のため例外を投げてしまう）。
+function disableRealtimeActionButtons() {
+    ['battle-skills-container', 'battle-items-container'].forEach(id => {
+        const container = document.getElementById(id);
+        if (!container) return;
+        container.querySelectorAll('button').forEach(btn => {
+            btn.classList.add('opacity-40', 'pointer-events-none');
+        });
+    });
+}
+
 async function performRealtimeAction(action) {
     if (!REALTIME_BATTLE.active || REALTIME_BATTLE.actionInProgress) return;
     const cached = REALTIME_BATTLE.cachedState;
@@ -795,7 +823,11 @@ async function performRealtimeAction(action) {
     const logRef = REALTIME_BATTLE.ref.child('battleLog');
 
     REALTIME_BATTLE.actionInProgress = true;
-    toggleMasmonSkillButtons(false);
+    // 注意：toggleMasmonSkillButtons()（masmon_battle.js）はCPU対戦専用のMASMON_BATTLE_STATEを
+    // 参照するため、リアルタイム対戦画面で呼ぶと getPlayerActive() が undefined を参照して例外を投げ、
+    // actionInProgress が true のまま固まって以後ずっと操作不能になるバグがあった。
+    // リアルタイム対戦では独自に再描画するだけで十分なため、専用の関数で代替する。
+    disableRealtimeActionButtons();
 
     let resultLogs = [];
     let committedTurnNumber = cached.turnNumber || 1;
@@ -845,7 +877,8 @@ async function performRealtimeAction(action) {
                     if (isHit) {
                         const isPow = sk.type === 'pow';
                         const attackerStat = getWeakenedStat(me, isPow ? me.pow : me.int);
-                        const defenderStat = opp.def;
+                        // 丈夫さ強化：ダメージ計算で使用する丈夫さは1.5倍して扱う
+                        const defenderStat = opp.def * 1.5;
                         const statCap = Math.max(30, defenderStat * 2.5);
                         const effectiveAttacker = attackerStat > statCap ? statCap + (attackerStat - statCap) * 0.2 : attackerStat;
                         const defenderGutsDefenseMod = getGutsDefenseModifier(opp.guts);
@@ -897,13 +930,17 @@ async function performRealtimeAction(action) {
                                 resultLogs.push(`💪 底力が発動！ ${opp.name} は窮地に陥り、次の技のダメージが 1.5 倍に上昇！`);
                             }
                         }
+                        const oppLifesaverLog = checkAndApplyEquipmentLifesaverEffect(opp);
+                        if (oppLifesaverLog) resultLogs.push(oppLifesaverLog);
 
                         let finalGutsDown = sk.gutsDown || 0;
                         if (me.isGyakujoActive && finalGutsDown > 0) {
                             finalGutsDown = Math.floor(finalGutsDown * 1.2);
                         }
                         if (finalGutsDown > 0) {
-                            const actualGutsDown = Math.min(opp.guts, finalGutsDown);
+                            // 丈夫さ強化：丈夫さが高いほど受けるガッツダウン量を軽減する
+                            const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(opp.def));
+                            const actualGutsDown = Math.min(opp.guts, mitigatedGutsDown);
                             opp.guts = Math.max(0, opp.guts - actualGutsDown);
                             if (actualGutsDown > 0) {
                                 resultLogs.push(`相手のガッツを ${actualGutsDown} 奪った！(現在: ${Math.floor(opp.guts)})`);
@@ -970,6 +1007,8 @@ async function performRealtimeAction(action) {
                     const selfDmg = Math.floor(me.maxLife * 0.3);
                     me.life = Math.max(0, me.life - selfDmg);
                     resultLogs.push(`🧪 ${me.name} は【${item.name}】を使った！ちから・かしこさが上昇したが、反動で ${selfDmg} のダメージを受けた！`);
+                    const meLifesaverLog = checkAndApplyEquipmentLifesaverEffect(me);
+                    if (meLifesaverLog) resultLogs.push(meLifesaverLog);
                 }
             } else {
                 return; // abort：不明な行動
@@ -1055,6 +1094,15 @@ async function performRealtimeAction(action) {
         showToast('通信エラーが発生しました。');
     } finally {
         REALTIME_BATTLE.actionInProgress = false;
+        // トランザクションがabort（データ変化なし）した場合、Firebaseの'value'イベントは
+        // 発火せず、renderRealtimeBattleUI()が再度呼ばれないため、
+        // disableRealtimeActionButtons()で無効化したボタンがそのまま固まってしまう
+        // （＝技もアイテムも押せず、投了しかできなくなるバグ）。
+        // 結果に関わらず、必ず最新のcachedStateでUIを再同期させることで、
+        // 実際には自分のターンのままなのにボタンが無効化され続ける状態を防ぐ。
+        if (REALTIME_BATTLE.active && REALTIME_BATTLE.cachedState) {
+            renderRealtimeBattleUI(REALTIME_BATTLE.cachedState);
+        }
     }
 }
 

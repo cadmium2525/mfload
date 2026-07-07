@@ -30,6 +30,7 @@ function updateAdventureUI() {
     const advIconEl = document.getElementById('adventure-monster-icon');
     renderMonsterVisual(advIconEl, p.name, p.emoji, GAME_STATE.isAwakened, true);
     document.getElementById('adventure-monster-name').textContent = p.name;
+    renderAuraBadge('adventure-aura-badge', p.aura);
     
     document.getElementById('adv-stat-life').textContent = `${p.stats.life}/${p.stats.maxLife}`;
     document.getElementById('adv-stat-pow').textContent = p.stats.pow;
@@ -129,8 +130,10 @@ function triggerNextFloor() {
         setupBattle(false);                     
     } else if (rand < 60) {
         setupTrainingEvent(); 
-    } else if (rand < 90) {
+    } else if (rand < 85) {
         setupEvent(false);                      
+    } else if (rand < 93) {
+        setupTreasureEvent();                   // 宝箱発見（装備アイテム入手イベント）
     } else {
         setupEvent(true);                       
     }
@@ -486,6 +489,70 @@ function setupEvent(isTraining = false) {
         };
         choicesContainer.appendChild(btn);
     });
+
+    changeScreen('screen-event');
+}
+
+// ==================== 宝箱発見イベント（装備アイテム入手） ====================
+function setupTreasureEvent() {
+    const ev = TREASURE_EVENTS[Math.floor(Math.random() * TREASURE_EVENTS.length)];
+
+    document.getElementById('event-tag').textContent = '🎁 TREASURE / 宝箱発見';
+    document.getElementById('event-tag').className = 'text-xs text-amber-300 tracking-wider font-extrabold';
+    document.getElementById('event-title').textContent = ev.title;
+    document.getElementById('event-visual').textContent = ev.visual;
+    document.getElementById('event-description').textContent =
+        `冒険の途中で${ev.title}見つけた！中には何やら装備アイテムが入っているようだ。（ノーマル/ハードモードで出現する装備の種類が異なる）`;
+    document.getElementById('event-result').classList.add('hidden');
+
+    const choicesContainer = document.getElementById('event-choices-container');
+    choicesContainer.innerHTML = '';
+
+    const openBtn = document.createElement('button');
+    openBtn.className = 'w-full py-3 bg-amber-700 hover:bg-amber-600 text-white font-bold rounded-xl text-xs shadow-md border border-amber-400 transition-all active:scale-95';
+    openBtn.textContent = ev.openText;
+    openBtn.onclick = () => {
+        const mode = GAME_STATE.difficulty === 'hard' ? 'hard' : 'normal';
+        const instance = rollEquipmentInstance(mode);
+        GAME_STATE.totalActions++;
+
+        const resultBox = document.getElementById('event-result');
+        if (instance) {
+            GAME_STATE.acquiredEquipment.push(instance);
+            const base = EQUIPMENT_DB[instance.equipId];
+            resultBox.innerHTML = `🎉 装備アイテム【${getEquipmentDisplayName(instance)}】を手に入れた！<br><span class="text-amber-300">${base.icon} ${getEquipmentDisplayDesc(instance)}</span><br><span class="text-[9px] text-gray-400">クリア時にブリーダーIDへ登録され、PvPでマスモンに装備させられます。</span>`;
+        } else {
+            resultBox.textContent = '宝箱の中は空っぽだった…。';
+        }
+        resultBox.classList.remove('hidden');
+
+        choicesContainer.innerHTML = `
+            <button onclick="endEvent()" class="w-full py-4 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl text-xs shadow-md transition-all">
+                冒険を再開する
+            </button>
+        `;
+    };
+    choicesContainer.appendChild(openBtn);
+
+    const leaveBtn = document.createElement('button');
+    leaveBtn.className = 'w-full py-3 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs shadow-md border border-amber-800 transition-all active:scale-95';
+    leaveBtn.textContent = ev.leaveText;
+    leaveBtn.onclick = () => {
+        const p = GAME_STATE.player;
+        p.stats.life = Math.min(p.stats.maxLife, p.stats.life + 20);
+        GAME_STATE.totalActions++;
+
+        const resultBox = document.getElementById('event-result');
+        resultBox.textContent = '念のため触れずに立ち去った。少し休んでライフが20回復した。';
+        resultBox.classList.remove('hidden');
+
+        choicesContainer.innerHTML = `
+            <button onclick="endEvent()" class="w-full py-4 bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold rounded-xl text-xs shadow-md transition-all">
+                冒険を再開する
+            </button>
+        `;
+    };
+    choicesContainer.appendChild(leaveBtn);
 
     changeScreen('screen-event');
 }

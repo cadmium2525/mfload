@@ -123,7 +123,8 @@ function buildRealtimeMyPayload() {
             skills: m.skills,
             skillEnhancements: m.skillEnhancements || {},
             statusEffect: m.statusEffect || null,
-            isAwakened: !!m.isAwakened
+            isAwakened: !!m.isAwakened,
+            equip: m.equip || null
         })),
         items: buildItemCounts(realtimePendingItems),
         lastSeen: getFirebaseServerNow()

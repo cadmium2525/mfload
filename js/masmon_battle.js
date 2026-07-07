@@ -49,7 +49,9 @@ function getPlayerActive() { return MASMON_BATTLE_STATE.playerTeam[MASMON_BATTLE
 function getEnemyActive() { return MASMON_BATTLE_STATE.enemyTeam[MASMON_BATTLE_STATE.enemyActiveIdx]; }
 
 // --- マスモン登録データをバトル用ユニットに変換 ---
-function convertMasmonToBattleUnit(masmonData) {
+// equippedItem: PvPでこのマスモンに装備させる装備インスタンス（未装備なら null/undefined）
+function convertMasmonToBattleUnit(masmonData, equippedItem) {
+    const equipBonus = getEquipmentStatBonuses(equippedItem);
     return {
         name: masmonData.name,
         monsterBaseName: masmonData.monsterBaseName || masmonData.name,
@@ -69,19 +71,30 @@ function convertMasmonToBattleUnit(masmonData) {
         shieldUsedThisBattle: false, // 九重神眼等の「バトル中1回限り」シールド技を使用済みか
         dodgeNextGuaranteed: false, // 陽炎等で得る「次の敵攻撃を確実に回避」フラグ
         permaForceBoostActive: false, // 天河天翔等で得る「今後のダメージ永続アップ」フラグ
+        equippedItem: equippedItem || null,      // 装備している装備アイテムインスタンス（PvP専用）
+        equipLifesaverUsed: false,               // 装備の特殊効果（残りライフ3割で1度だけ回復等）を使用済みか
         stats: {
-            maxLife: masmonData.stats.maxLife,
-            life: masmonData.stats.maxLife,
-            pow: masmonData.stats.pow,
-            int: masmonData.stats.int,
-            hit: masmonData.stats.hit,
-            spd: masmonData.stats.spd,
-            def: masmonData.stats.def,
+            maxLife: masmonData.stats.maxLife + equipBonus.maxLife,
+            life: masmonData.stats.maxLife + equipBonus.maxLife,
+            pow: masmonData.stats.pow + equipBonus.pow,
+            int: masmonData.stats.int + equipBonus.int,
+            hit: masmonData.stats.hit + equipBonus.hit,
+            spd: masmonData.stats.spd + equipBonus.spd,
+            def: masmonData.stats.def + equipBonus.def,
             gutsSpeed: masmonData.stats.gutsSpeed || 14
         },
         skills: [...(masmonData.skills || [])],
         skillEnhancements: JSON.parse(JSON.stringify(masmonData.skillEnhancements || {})) // 技の強化データ { skKey: { forceBonus, hitBonus, level } }
     };
+}
+
+// --- CPU（対戦相手）にランダムで装備アイテムを1つ持たせる（プレイヤー側の装備選択と対になる演出） ---
+// 相手が育成した際の難易度（masmonData.difficulty）に応じたプールから抽選する。
+// 必ず装備しているわけではなく、対戦アイテム同様に確率で持たせることでバランスを取る。
+function rollRandomEnemyEquipment(masmonData) {
+    if (Math.random() >= 0.5) return null;
+    const mode = (masmonData && masmonData.difficulty === 'hard') ? 'hard' : 'normal';
+    return rollEquipmentInstance(mode);
 }
 
 // --- 技の強化データを反映した実効ステータス（force/hitRate）を取得 ---
@@ -206,8 +219,8 @@ async function startMasmonCpuBattle(myMasmon, itemLoadout = []) {
     }
 
     MASMON_BATTLE_STATE.mode = 'cpu_solo';
-    MASMON_BATTLE_STATE.playerTeam = [convertMasmonToBattleUnit(myMasmon)];
-    MASMON_BATTLE_STATE.enemyTeam = [convertMasmonToBattleUnit(enemyMasmon)];
+    MASMON_BATTLE_STATE.playerTeam = [convertMasmonToBattleUnit(myMasmon, myMasmon.equip || null)];
+    MASMON_BATTLE_STATE.enemyTeam = [convertMasmonToBattleUnit(enemyMasmon, rollRandomEnemyEquipment(enemyMasmon))];
     MASMON_BATTLE_STATE.playerMeta = [myMasmon];
     MASMON_BATTLE_STATE.enemyMeta = [enemyMasmon];
     MASMON_BATTLE_STATE.playerActiveIdx = 0;
@@ -247,8 +260,8 @@ async function startMasmonCpuTeamBattle(myMasmons, itemLoadout = []) {
     }
 
     MASMON_BATTLE_STATE.mode = 'cpu_team';
-    MASMON_BATTLE_STATE.playerTeam = myMasmons.map(convertMasmonToBattleUnit);
-    MASMON_BATTLE_STATE.enemyTeam = enemyMasmons.map(convertMasmonToBattleUnit);
+    MASMON_BATTLE_STATE.playerTeam = myMasmons.map(m => convertMasmonToBattleUnit(m, m.equip || null));
+    MASMON_BATTLE_STATE.enemyTeam = enemyMasmons.map(m => convertMasmonToBattleUnit(m, rollRandomEnemyEquipment(m)));
     MASMON_BATTLE_STATE.playerMeta = [...myMasmons];
     MASMON_BATTLE_STATE.enemyMeta = [...enemyMasmons];
     MASMON_BATTLE_STATE.playerActiveIdx = 0;
@@ -621,6 +634,9 @@ function renderMasmonBattleSkills() {
     container.innerHTML = '';
 
     const p = getPlayerActive();
+    const e = getEnemyActive();
+    const gutsValForHit = Math.floor(p.guts);
+    const gutsModsForHit = getGutsModifiers(gutsValForHit);
     p.skills.forEach(skKey => {
         const sk = getMasmonEffectiveSkill(p, skKey);
         if (!sk) return;
@@ -676,9 +692,16 @@ function renderMasmonBattleSkills() {
             ? `<span class="text-[8px] bg-purple-900 text-purple-200 px-1 py-0.5 rounded font-bold ml-1">⚔️Lv.${enh.level}</span>`
             : '';
 
-        const hitRateDisplay = (sk.type === 'heal' || sk.type.startsWith('buff'))
-            ? `<span class="text-emerald-700 text-[9px] font-bold">必中</span>`
-            : `<span class="${style.textIntensity} text-[9px] font-bold font-mono hit-rate-text">命中:${sk.hitRate}%</span>`;
+        let hitRateDisplay;
+        if (sk.type === 'heal' || sk.type.startsWith('buff')) {
+            hitRateDisplay = `<span class="text-emerald-700 text-[9px] font-bold">必中</span>`;
+        } else if (sk.hitRate === 100) {
+            hitRateDisplay = `<span class="${style.textIntensity} text-[9px] font-bold font-mono hit-rate-text">命中:必中</span>`;
+        } else {
+            let actualHitForIcon = Math.max(10, Math.min(99, (sk.hitRate + gutsModsForHit.hitMod) + (p.stats.hit - e.stats.spd) * 0.5));
+            if (p.isShuchuActive) actualHitForIcon = Math.min(99, actualHitForIcon * 1.5);
+            hitRateDisplay = `<span class="${style.textIntensity} text-[9px] font-bold font-mono hit-rate-text">命中:${Math.round(actualHitForIcon)}%</span>`;
+        }
 
         btn.innerHTML = `
             <div class="flex justify-between items-center w-full">
@@ -944,7 +967,8 @@ function executeMasmonPlayerSkill(skKey) {
             if (isHit) {
                 const isPow = sk.type === 'pow';
                 const attackerStat = getWeakenedStat(p, isPow ? p.stats.pow : p.stats.int);
-                const defenderStat = e.stats.def;
+                // 丈夫さ強化：ダメージ計算で使用する丈夫さは1.5倍して扱う
+                const defenderStat = e.stats.def * 1.5;
                 const statCap = Math.max(30, defenderStat * 2.5);
                 let effectiveAttacker = attackerStat;
                 if (attackerStat > statCap) {
@@ -991,13 +1015,17 @@ function executeMasmonPlayerSkill(skKey) {
 
                 e.stats.life = Math.max(0, e.stats.life - damage);
                 checkMasmonDefenseStatusTriggers(e);
+                const eLifesaverLog = checkAndApplyEquipmentLifesaverEffect(e);
+                if (eLifesaverLog) addLog(eLifesaverLog);
 
                 let finalGutsDown = sk.gutsDown || 0;
                 if (p.isGyakujoActive && finalGutsDown > 0) {
                     finalGutsDown = Math.floor(finalGutsDown * 1.2);
                 }
                 if (finalGutsDown > 0) {
-                    const actualGutsDown = Math.min(e.guts, finalGutsDown);
+                    // 丈夫さ強化：丈夫さが高いほど受けるガッツダウン量を軽減する
+                    const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(e.stats.def));
+                    const actualGutsDown = Math.min(e.guts, mitigatedGutsDown);
                     e.guts = Math.max(0, e.guts - actualGutsDown);
                     addLog(`さらに！相手のガッツを ${actualGutsDown} 奪い取った！${p.isGyakujoActive ? " (逆上×1.2)" : ""} (現在: ${Math.floor(e.guts)})`);
                     checkMasmonGyakujoTrigger(e);
@@ -1199,7 +1227,8 @@ function executeMasmonEnemyTurn() {
                     if (isHit) {
                         const isPow = sk.type === 'pow';
                         const attackerStat = getWeakenedStat(e, isPow ? e.stats.pow : e.stats.int);
-                        const defenderStat = p.stats.def;
+                        // 丈夫さ強化：ダメージ計算で使用する丈夫さは1.5倍して扱う
+                        const defenderStat = p.stats.def * 1.5;
                         const statCap = Math.max(30, defenderStat * 2.5);
                         let effectiveAttacker = attackerStat;
                         if (attackerStat > statCap) {
@@ -1241,13 +1270,17 @@ function executeMasmonEnemyTurn() {
                             addLog(`🛡️ ${p.name} のシールドが ${shieldResult.absorbed} のダメージを吸収した！(シールド残量: ${p.shieldValue})`);
                         }
                         checkMasmonDefenseStatusTriggers(p);
+                        const pLifesaverLog = checkAndApplyEquipmentLifesaverEffect(p);
+                        if (pLifesaverLog) addLog(pLifesaverLog);
 
                         let finalGutsDown = sk.gutsDown || 0;
                         if (e.isGyakujoActive && finalGutsDown > 0) {
                             finalGutsDown = Math.floor(finalGutsDown * 1.2);
                         }
                         if (finalGutsDown > 0) {
-                            const actualGutsDown = Math.min(p.guts, finalGutsDown);
+                            // 丈夫さ強化：丈夫さが高いほど受けるガッツダウン量を軽減する
+                            const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(p.stats.def));
+                            const actualGutsDown = Math.min(p.guts, mitigatedGutsDown);
                             p.guts = Math.max(0, p.guts - actualGutsDown);
                             addLog(`さらに！ ${p.name} のガッツが ${actualGutsDown} 奪われた！(現在: ${Math.floor(p.guts)})`);
                             checkMasmonGyakujoTrigger(p);

@@ -4,6 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>モンスターブリーダー：ガッツロード</title>
+
+    <!-- ==================== PWA 設定 ==================== -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#1a120b">
+    <meta name="description" content="30階の栄光を目指す、モンスター育成＆バトルRPG「モンスターファーム ガッツロード」">
+
+    <!-- ホーム画面追加時のアイコン（iOS Safari） -->
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <!-- 標準アイコン（favicon 兼用） -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+
+    <!-- iOS のホーム画面起動をアプリライクにするための設定 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ガッツロード">
+    <!-- Android/Chrome -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <!-- ==================================================== -->
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome for icons -->
@@ -96,6 +116,42 @@
                 </div>
             </div>
 
+            <!-- ==================== SCREEN 1.5: オーラの儀式画面 ==================== -->
+            <div id="screen-aura-ritual" class="screen flex-col justify-between h-full p-6 text-center bg-gradient-to-b from-[#1a2a3c] to-[#0a0f1a]">
+                <div class="mt-4">
+                    <p class="text-sky-400 text-xs font-bold tracking-widest uppercase mb-1">Ritual of Aura</p>
+                    <h2 class="text-2xl font-extrabold text-[#f5f2eb] tracking-wider pixel-font border-b-4 border-sky-500 pb-2">
+                        オーラの儀式
+                    </h2>
+                    <p class="text-[11px] text-gray-400 mt-3 leading-relaxed">
+                        育成の旅に出る前に、パートナーにオーラを宿す儀式を行います。<br>
+                        オーラには 赤・緑・黄・青 の4色があり、<br>
+                        <span class="text-red-400 font-bold">赤</span> は <span class="text-green-400 font-bold">緑</span> に、
+                        <span class="text-green-400 font-bold">緑</span> は <span class="text-yellow-300 font-bold">黄</span> に、
+                        <span class="text-yellow-300 font-bold">黄</span> は <span class="text-blue-400 font-bold">青</span> に、
+                        <span class="text-blue-400 font-bold">青</span> は <span class="text-red-400 font-bold">赤</span> に、<br>
+                        それぞれ有利で、有利な相手には与ダメージが <span class="text-amber-400 font-bold">1.5倍</span> になります。
+                    </p>
+                </div>
+
+                <div class="bg-[#0f1620] p-4 rounded-xl border border-sky-800/50 shadow-inner">
+                    <p class="text-xs text-sky-300 font-bold mb-3">宿すオーラを選んでください</p>
+                    <div class="grid grid-cols-4 gap-2" id="aura-select-container">
+                        <!-- JSで動的に選択肢を生成 -->
+                    </div>
+                    <div id="aura-ritual-detail" class="mt-3 pt-2 border-t border-sky-900 text-left text-[11px] text-gray-300 min-h-[2.5rem]">
+                        オーラを選ぶと、相性の詳細がここに表示されます。
+                    </div>
+                </div>
+
+                <div class="space-y-2 mt-2">
+                    <button onclick="confirmAuraRitual()" id="aura-ritual-confirm-btn" disabled
+                        class="w-full py-3.5 bg-gray-700 text-gray-400 font-bold rounded-xl text-md shadow-lg transform transition-all pixel-font border-b-4 border-gray-800 cursor-not-allowed">
+                        オーラを宿し、育成を開始する
+                    </button>
+                </div>
+            </div>
+
             <!-- ==================== SCREEN 2: メイン冒険・育成画面（アドベンチャーホーム） ==================== -->
             <div id="screen-adventure" class="screen flex-col justify-between h-full p-4 bg-[#2b1c14] space-y-3">
                 <!-- ヘッダー情報 -->
@@ -121,7 +177,10 @@
                     <div class="relative w-28 h-28 bg-[#1a120b] rounded-full border-4 border-amber-700 flex items-center justify-center text-5xl shadow-inner mb-2 animate-bounce" id="adventure-monster-icon">
                         💬
                     </div>
-                    <h2 class="text-md font-bold text-amber-200" id="adventure-monster-name">モンスター名</h2>
+                    <h2 class="text-md font-bold text-amber-200 flex items-center justify-center gap-1">
+                        <span id="adventure-monster-name">モンスター名</span>
+                        <span id="adventure-aura-badge" class="hidden px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-900"></span>
+                    </h2>
                     
                     <!-- 体力ステータス (MAX 100) -->
                     <div class="w-full max-w-xs mt-2 bg-[#140b08] p-2 rounded-xl border border-amber-900/40">
@@ -297,7 +356,10 @@
                     <!-- 敵ステータス -->
                     <div class="bg-[#140b08] p-2 rounded border border-red-900/50 space-y-1">
                         <div class="flex justify-between items-center">
-                            <span class="font-bold text-xs text-red-400" id="enemy-name">スエゾー</span>
+                            <span class="font-bold text-xs text-red-400 flex items-center">
+                                <span id="enemy-name">スエゾー</span>
+                                <span id="enemy-aura-badge" class="hidden ml-1 px-1 py-0.5 rounded text-[8px] font-bold text-slate-900"></span>
+                            </span>
                             <span class="text-[10px] text-gray-400" id="enemy-hp-text">HP: 120/120</span>
                         </div>
                         <!-- HPゲージ -->
@@ -326,7 +388,10 @@
                         <div class="relative w-16 h-16 flex items-center justify-center mb-2 animate-pulse" id="battle-player-icon">
                             🍪
                         </div>
-                        <div class="bg-amber-900/80 px-2 py-0.5 rounded text-[9px] text-amber-200" id="battle-player-name">モッチー</div>
+                        <div class="bg-amber-900/80 px-2 py-0.5 rounded text-[9px] text-amber-200 flex items-center space-x-1">
+                            <span id="battle-player-name">モッチー</span>
+                            <span id="player-aura-badge" class="hidden px-1 py-0.5 rounded text-[8px] font-bold text-slate-900"></span>
+                        </div>
                         <!-- ダメージ数値表示用 -->
                         <div id="player-dmg-popup" class="absolute -top-8 text-lg font-bold text-red-500 opacity-0 transition-all duration-500 pointer-events-none"></div>
                     </div>
@@ -446,6 +511,19 @@
                                 <span id="dropped-item-desc" class="text-[9px] text-gray-400 block">アイテムの効果説明</span>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- 装備アイテム獲得のお知らせ領域 -->
+                    <div id="battle-equipment-drop-display" class="hidden bg-purple-950/80 border border-purple-500/50 p-2.5 rounded-xl text-center space-y-1">
+                        <p class="text-[10px] text-purple-300 font-bold"><i class="fa-solid fa-shield-halved mr-1"></i>装備アイテム獲得！</p>
+                        <div class="flex items-center justify-center space-x-2">
+                            <span id="dropped-equipment-icon" class="text-2xl">🛡️</span>
+                            <div class="text-left">
+                                <span id="dropped-equipment-name" class="text-xs font-bold text-white block">装備名</span>
+                                <span id="dropped-equipment-desc" class="text-[9px] text-gray-400 block">効果説明</span>
+                            </div>
+                        </div>
+                        <p class="text-[8px] text-gray-500">クリア時にブリーダーIDへ登録され、PvPで装備できます</p>
                     </div>
                 </div>
 
@@ -622,12 +700,48 @@
                     🛡️⚔️🛡️ 団体戦（3vs3）に挑む
                 </button>
 
+                <button onclick="showEquipmentListScreen()" class="w-full py-2.5 bg-purple-950/40 hover:bg-purple-900/40 text-purple-300 font-bold rounded-xl text-xs border border-purple-800 transition-all active:scale-95">
+                    🛡️ 所持装備アイテムを見る
+                </button>
+
                 <button onclick="showPvpRanking()" class="w-full py-2.5 bg-sky-950/40 hover:bg-sky-900/40 text-sky-300 font-bold rounded-xl text-xs border border-sky-800 transition-all active:scale-95">
                     🏆 PvPレートランキングを見る
                 </button>
 
                 <button onclick="restartGame()" class="w-full py-3 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs border border-amber-800 transition-all active:scale-95">
                     タイトルに戻る
+                </button>
+            </div>
+
+            <!-- ==================== SCREEN 7.4: 所持装備アイテム一覧画面 ==================== -->
+            <div id="screen-equipment-list" class="screen flex-col justify-between h-full p-4 bg-[#1a120b] space-y-3">
+                <div class="bg-purple-950/40 p-3 rounded-xl border border-purple-700 text-center">
+                    <div class="text-3xl mb-1">🛡️</div>
+                    <h2 class="text-lg font-black text-purple-300 pixel-font">所持装備アイテム</h2>
+                    <p class="text-[10px] text-gray-400 mt-1">所持数: <span id="equipment-list-count">0</span></p>
+                </div>
+
+                <div id="equipment-list-picker-banner" class="hidden bg-purple-950/50 border border-purple-600 rounded-xl px-2.5 py-2"></div>
+
+                <div class="flex space-x-1.5 overflow-x-auto pb-1" id="equipment-filter-tabs"></div>
+
+                <div class="flex items-center justify-between bg-[#2a1b15] border border-purple-900/50 rounded-xl px-2.5 py-1.5">
+                    <span class="text-[10px] text-gray-400">並び替え:</span>
+                    <select onchange="onEquipmentSortChange(this)" class="bg-[#150b07] border border-purple-800 text-white text-[10px] rounded-lg px-2 py-1 focus:outline-none">
+                        <option value="acquiredDesc">入手が新しい順</option>
+                        <option value="acquiredAsc">入手が古い順</option>
+                        <option value="rarityDesc">レア度が高い順</option>
+                        <option value="valueDesc">上昇値が高い順</option>
+                        <option value="nameAsc">名前順</option>
+                    </select>
+                </div>
+
+                <div class="flex-1 overflow-y-auto space-y-2 pr-1" id="equipment-list-container">
+                    <div class="text-center text-gray-500 text-xs py-8">読み込み中...</div>
+                </div>
+
+                <button onclick="closeEquipmentListScreen()" class="w-full py-3 bg-[#3c2a21] hover:bg-[#4a352a] text-white font-bold rounded-xl text-xs border border-amber-800 transition-all active:scale-95">
+                    マイマスモンに戻る
                 </button>
             </div>
 
@@ -947,12 +1061,55 @@
                 <div id="masmon-detail-skills" class="space-y-1"></div>
             </div>
 
+            <div class="bg-[#1e120c] p-2 rounded border border-purple-900/40 space-y-1.5">
+                <span class="text-[9px] text-purple-300 font-bold block">🛡️ 装備アイテム（PvP専用・1つまで）</span>
+                <div class="flex items-center justify-between bg-[#150b07] p-2 rounded-lg border border-purple-950">
+                    <div class="flex items-center space-x-2 min-w-0">
+                        <span id="masmon-detail-equip-icon" class="text-xl flex-shrink-0">🚫</span>
+                        <div class="min-w-0">
+                            <div id="masmon-detail-equip-name" class="text-[11px] font-bold text-white truncate">未装備</div>
+                            <div id="masmon-detail-equip-desc" class="text-[9px] text-gray-400 truncate"></div>
+                        </div>
+                    </div>
+                    <button onclick="openEquipPickerFromMasmonDetail()" class="flex-shrink-0 text-[9px] bg-purple-800 hover:bg-purple-700 border border-purple-600 text-white px-2 py-1 rounded-lg transition-all active:scale-95 font-bold ml-1.5">
+                        選ぶ
+                    </button>
+                </div>
+            </div>
+
             <div class="bg-[#150b07] p-2 rounded-xl border border-purple-950 text-[10px] text-gray-400 flex justify-between">
                 <span id="masmon-detail-difficulty">NORMAL</span>
                 <span id="masmon-detail-floor">0F到達</span>
             </div>
 
             <button onclick="closeMasmonDetailModal()" class="w-full py-2 bg-purple-700 hover:bg-purple-600 text-white font-bold rounded-xl text-xs transition-all">
+                閉じる
+            </button>
+        </div>
+    </div>
+
+    <!-- 装備アイテム詳細モーダル（所持装備一覧でタップすると表示・お気に入りタグ切り替え） -->
+    <div id="equipment-detail-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 hidden" onclick="closeEquipmentDetailModal()">
+        <div class="bg-[#2a1b15] w-full max-w-xs max-h-[85vh] overflow-y-auto p-4 rounded-2xl border-2 border-purple-600 space-y-3 shadow-2xl" onclick="event.stopPropagation()">
+            <div class="flex items-center space-x-3 border-b border-purple-800 pb-2">
+                <div id="equipment-detail-icon" class="w-14 h-14 flex items-center justify-center text-3xl flex-shrink-0 bg-[#1a120b] rounded-full border border-purple-900/60"></div>
+                <div class="flex-1 min-w-0">
+                    <h4 id="equipment-detail-name" class="text-base font-black text-white pixel-font truncate">装備名</h4>
+                    <p class="text-[10px] text-amber-400" id="equipment-detail-rarity">★★☆</p>
+                    <p class="text-[9px] text-gray-500" id="equipment-detail-mode">NORMAL産</p>
+                </div>
+            </div>
+
+            <div class="bg-[#150b07] p-2 rounded-xl border border-purple-950 text-[11px] text-gray-300" id="equipment-detail-desc">
+                効果説明
+            </div>
+
+            <div class="space-y-1">
+                <span class="text-[9px] text-amber-300 font-bold block">⭐ お気に入り登録（複数選択可・5パターン）</span>
+                <div class="grid grid-cols-3 gap-1.5" id="equipment-detail-tags"></div>
+            </div>
+
+            <button onclick="closeEquipmentDetailModal()" class="w-full py-2 bg-purple-700 hover:bg-purple-600 text-white font-bold rounded-xl text-xs transition-all">
                 閉じる
             </button>
         </div>
@@ -976,11 +1133,23 @@
     <script src="js/game_battle.js"></script>
     <script src="js/game_ranking.js"></script>
     <script src="js/masmon.js"></script>
+    <script src="js/equipment.js"></script>
     <script src="js/masmon_transfer.js"></script>
     <script src="js/masmon_battle.js"></script>
     <script src="js/masmon_team.js"></script>
     <script src="js/masmon_rating.js"></script>
     <script src="js/masmon_realtime.js"></script>
     <script src="js/masmon_realtime_battle.js"></script>
+
+    <!-- ==================== PWA: Service Worker 登録 ==================== -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js').catch((err) => {
+                    console.warn('Service Worker registration failed:', err);
+                });
+            });
+        }
+    </script>
 </body>
 </html>

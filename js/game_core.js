@@ -11,13 +11,61 @@
 // 他の game_*.js や masmon_*.js より先に読み込まれる前提。
 // =====================================================
 
+// --- ブリーダー名の永続化（LocalStorage） ---
+// これが無いと、GAME_STATE.playerName はページ読み込みのたびに既定値
+// 'ブリーダー' にリセットされてしまい、startGame() を経由せずに
+// 「マイマスモンを見る」から直接PvP対戦・ランキング参照をした場合、
+// 常に名前が「ブリーダー」として記録・表示されてしまう（PvPランキング名が
+// 誰でも「ブリーダー」になるバグの原因）。
+function loadStoredPlayerName() {
+    try {
+        return localStorage.getItem('mfload_player_name') || 'ブリーダー';
+    } catch (e) {
+        return 'ブリーダー';
+    }
+}
+
+function saveStoredPlayerName(name) {
+    try {
+        localStorage.setItem('mfload_player_name', name);
+    } catch (e) { /* ignore（プライベートブラウズ等でlocalStorage不可の場合は無視） */ }
+}
+
+// --- ブリーダー名をクラウド（Firebase）と同期する ---
+// masmon_owners/{playerId}/name には、マスモン保存時（registerMasmonOwner）に
+// 既に名前が書き込まれている。この値をプレイヤーID紐づけの「正」として扱い、
+// ページ読み込み時に取得してGAME_STATE・入力欄・LocalStorageキャッシュへ反映する。
+// これにより、LocalStorageだけに頼る場合と違い、キャッシュを消しても
+// 「引き継ぎコード」でプレイヤーIDさえ復元できれば名前も一緒に復元される。
+async function syncPlayerNameFromCloud() {
+    try {
+        if (typeof initFirebase !== 'function' || !initFirebase()) return;
+        if (typeof getMyPlayerId !== 'function') return;
+
+        const pid = getMyPlayerId();
+        const snap = await firebaseDb.ref(`masmon_owners/${pid}/name`).once('value');
+        const cloudName = snap.val();
+
+        if (cloudName && cloudName !== GAME_STATE.playerName) {
+            GAME_STATE.playerName = cloudName;
+            saveStoredPlayerName(cloudName);
+            const nameInputEl = document.getElementById('player-name-input');
+            if (nameInputEl && !nameInputEl.value) {
+                nameInputEl.value = cloudName;
+            }
+        }
+    } catch (e) {
+        console.error('[ブリーダー名同期エラー]', e);
+    }
+}
+
 // --- ゲーム状態管理 ---
 const GAME_STATE = {
     currentScreen: 'screen-title',
     floor: 1,
     totalActions: 0,          // 総行動回数
     totalDamageDealt: 0,      // 敵への与ダメージ累計
-    playerName: 'ブリーダー', // プレイヤー名
+    playerName: loadStoredPlayerName(), // プレイヤー名（LocalStorageから復元。無ければ既定値）
     player: null,
     enemy: null,
     battleTurn: 1,
@@ -43,7 +91,8 @@ const GAME_STATE = {
     isGyakujoActive: false,     // 逆上状態が発動しているか
     isSokojikaraFired: false,   // 底力が既にトリガーされたか (バトル中1回)
     isSokojikaraActive: false,  // 底力のダメージ増加効果が有効か (次の1回)
-    isShuchuActive: false       // 集中状態が有効か (ガッツ90超から技使用まで)
+    isShuchuActive: false,      // 集中状態が有効か (ガッツ90超から技使用まで)
+    acquiredEquipment: []        // 今回の冒険中に入手した装備アイテム（クリア時にブリーダーIDへ保存される）
 };
 
 // --- モンスター画像読み込みヘルパー関数 ---
@@ -101,6 +150,20 @@ function renderMonsterVisual(containerEl, name, emoji, isAwakened = false, isPar
 }
 
 
+// --- オーラバッジ表示ヘルパー（バトル画面の名前横に色付きバッジを表示する） ---
+function renderAuraBadge(elId, auraKey) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const aura = AURA_TYPES[auraKey];
+    if (!aura) {
+        el.classList.add('hidden');
+        el.textContent = '';
+        return;
+    }
+    el.textContent = `${aura.emoji}${aura.name}`;
+    el.className = `px-1 py-0.5 rounded text-[8px] font-bold text-slate-900 ${aura.colorClass}`;
+}
+
 // --- お知らせトースト関数 ---
 function showToast(message) {
     const toast = document.getElementById('custom-toast');
@@ -131,6 +194,15 @@ window.addEventListener('load', () => {
     setRealViewportHeight();
     loadInheritedSkill();
     renderPartnerSelection();
+    // 保存済みのブリーダー名があれば入力欄にプリセットしておく
+    // （PvPランキング等に表示される名前が毎回「ブリーダー」に戻るのを防ぐため）
+    const nameInputEl = document.getElementById('player-name-input');
+    if (nameInputEl && GAME_STATE.playerName && GAME_STATE.playerName !== 'ブリーダー') {
+        nameInputEl.value = GAME_STATE.playerName;
+    }
+    // Firebase側（プレイヤーIDに紐づく masmon_owners/{playerId}/name）から
+    // 名前を取得し直し、LocalStorageより優先して反映する（非同期・失敗しても致命的ではない）
+    syncPlayerNameFromCloud();
     // Firebaseのサーバー時刻オフセット取得をできるだけ早く開始しておく
     // （ランダムマッチング等の「経過時間」判定が端末の時計ズレに影響されないようにするため）
     if (typeof initFirebase === 'function') initFirebase();
@@ -314,7 +386,13 @@ function startGame() {
     
     const nameInput = document.getElementById('player-name-input');
     const enteredName = nameInput ? nameInput.value.trim() : '';
-    GAME_STATE.playerName = enteredName || 'ブリーダー';
+    // 入力が空の場合、以前保存済みの名前があればそれを維持する（無ければ既定値）
+    GAME_STATE.playerName = enteredName || GAME_STATE.playerName || 'ブリーダー';
+    saveStoredPlayerName(GAME_STATE.playerName);
+    // プレイヤーIDに紐づけてクラウド側にも即時反映（失敗しても本編の進行は妨げない）
+    if (typeof registerMasmonOwner === 'function') {
+        registerMasmonOwner().catch(() => {});
+    }
     
     const diffRadios = document.getElementsByName('difficulty');
     for (let r of diffRadios) {
@@ -376,7 +454,80 @@ function startGame() {
     GAME_STATE.isSokojikaraFired = false;
     GAME_STATE.isSokojikaraActive = false;
     GAME_STATE.isShuchuActive = false;
+    GAME_STATE.acquiredEquipment = [];
 
+    goToAuraRitual();
+}
+
+// =====================================================
+// オーラの儀式（新要素）
+// 育成開始時に、パートナーへ宿すオーラ（赤/緑/黄/青）をプレイヤーに選ばせる
+// 演出シーン。選んだオーラは GAME_STATE.player.aura に保存され、
+// 育成中バトル(game_battle.js)のダメージ計算で有利属性判定に使われる。
+// =====================================================
+let selectedRitualAura = null;
+
+function goToAuraRitual() {
+    selectedRitualAura = null;
+    renderAuraRitualSelection();
+    changeScreen('screen-aura-ritual');
+}
+
+function renderAuraRitualSelection() {
+    const container = document.getElementById('aura-select-container');
+    container.innerHTML = '';
+
+    Object.values(AURA_TYPES).forEach(aura => {
+        const isSelected = aura.key === selectedRitualAura;
+        const btn = document.createElement('button');
+        btn.className = `p-3 rounded-xl border flex flex-col items-center justify-center transition-all ${
+            isSelected ? `${aura.colorClass} border-white text-slate-900 shadow-lg scale-105` : 'bg-[#0f1620] border-sky-900/60 text-gray-300 hover:border-sky-600'
+        }`;
+        btn.onclick = () => selectRitualAura(aura.key);
+
+        const emojiEl = document.createElement('div');
+        emojiEl.className = 'text-2xl mb-1';
+        emojiEl.textContent = aura.emoji;
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'text-[11px] font-bold';
+        nameEl.textContent = aura.name;
+
+        btn.appendChild(emojiEl);
+        btn.appendChild(nameEl);
+        container.appendChild(btn);
+    });
+
+    updateAuraRitualDetail();
+}
+
+function selectRitualAura(key) {
+    selectedRitualAura = key;
+    renderAuraRitualSelection();
+
+    const confirmBtn = document.getElementById('aura-ritual-confirm-btn');
+    confirmBtn.disabled = false;
+    confirmBtn.classList.remove('bg-gray-700', 'text-gray-400', 'border-gray-800', 'cursor-not-allowed');
+    confirmBtn.classList.add('bg-sky-500', 'hover:bg-sky-600', 'text-slate-900', 'border-sky-700', 'active:scale-95');
+}
+
+function updateAuraRitualDetail() {
+    const detail = document.getElementById('aura-ritual-detail');
+    if (!selectedRitualAura) {
+        detail.textContent = 'オーラを選ぶと、相性の詳細がここに表示されます。';
+        return;
+    }
+    const aura = AURA_TYPES[selectedRitualAura];
+    const beatenAura = AURA_TYPES[aura.beats];
+    detail.innerHTML = `<span class="${aura.textClass} font-bold">${aura.emoji}${aura.name}のオーラ</span>を選択中。
+        <span class="${beatenAura.textClass} font-bold">${beatenAura.emoji}${beatenAura.name}のオーラ</span>を持つ相手には与ダメージが1.5倍になります。`;
+}
+
+function confirmAuraRitual() {
+    if (!selectedRitualAura) return;
+    const aura = AURA_TYPES[selectedRitualAura];
+    GAME_STATE.player.aura = selectedRitualAura;
+    showToast(`✨ ${aura.emoji}${aura.name}のオーラを宿した！`);
     goToAdventure();
 }
 
