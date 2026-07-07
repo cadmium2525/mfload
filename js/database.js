@@ -353,6 +353,10 @@ const EQUIPMENT_DB = {
     sage_ring:       { id: 'sage_ring',       name: '賢者の指輪',       icon: '💍', rarity: '★★☆', mode: 'normal', type: 'stat', statKey: 'int',     range: [20, 25], desc: 'かしこさが上昇する指輪。' },
     hawk_eye_lens:   { id: 'hawk_eye_lens',   name: '鷹の目レンズ',     icon: '🔍', rarity: '★☆☆', mode: 'normal', type: 'stat', statKey: 'hit',     range: [15, 20], desc: '命中が上昇するレンズ。' },
     vital_amulet:    { id: 'vital_amulet',    name: '生命のお守り',     icon: '💗', rarity: '★☆☆', mode: 'normal', type: 'stat', statKey: 'maxLife', range: [30, 40], desc: '最大ライフが上昇するお守り。' },
+    rough_gauntlet:  { id: 'rough_gauntlet',  name: '荒縄のガントレット', icon: '🥊', rarity: '★☆☆', mode: 'normal', type: 'stat', statKey: 'pow',     range: [10, 14], desc: 'ちからが少し上昇する簡素な籠手。' },
+    stone_bangle:    { id: 'stone_bangle',    name: '石の腕輪',         icon: '🪨', rarity: '★☆☆', mode: 'normal', type: 'stat', statKey: 'def',     range: [10, 14], desc: '丈夫さが少し上昇する素朴な腕輪。' },
+    clever_charm:    { id: 'clever_charm',    name: '知恵の首飾り',     icon: '📿', rarity: '★☆☆', mode: 'normal', type: 'stat', statKey: 'int',     range: [12, 16], desc: 'かしこさが少し上昇する首飾り。' },
+    swift_anklet:    { id: 'swift_anklet',    name: '俊足のアンクレット', icon: '👟', rarity: '★☆☆', mode: 'normal', type: 'stat', statKey: 'spd',     range: [10, 14], desc: '回避が少し上昇するアンクレット。' },
     guardian_pendant:{ id: 'guardian_pendant',name: '守護のペンダント', icon: '🛡️', rarity: '★★★', mode: 'normal', type: 'special', effect: 'lifesaver', healPct: 0.3, desc: '残りライフが最大ライフの3割を切った時、1度だけ最大ライフの3割を回復する。' },
 
     // ---------- ハードモード産（ノーマルより強力・周回価値づけ） ----------
@@ -362,13 +366,26 @@ const EQUIPMENT_DB = {
     archsage_crown:  { id: 'archsage_crown',  name: '大賢者の冠',       icon: '👑', rarity: '★★★', mode: 'hard', type: 'stat', statKey: 'int',     range: [32, 40], desc: 'かしこさが大きく上昇する冠。' },
     true_strike_lens:{ id: 'true_strike_lens',name: '真眼のレンズ',     icon: '🎯', rarity: '★★☆', mode: 'hard', type: 'stat', statKey: 'hit',     range: [25, 32], desc: '命中が大きく上昇するレンズ。' },
     titan_heart:     { id: 'titan_heart',     name: '巨神の心臓',       icon: '❤️', rarity: '★★★', mode: 'hard', type: 'stat', statKey: 'maxLife', range: [60, 80], desc: '最大ライフが大きく上昇する秘宝。' },
-    phoenix_feather: { id: 'phoenix_feather', name: '不死鳥の羽根',     icon: '🪶', rarity: '★★★', mode: 'hard', type: 'special', effect: 'lifesaver', healPct: 0.4, desc: '残りライフが最大ライフの3割を切った時、1度だけ最大ライフの4割を回復する。' }
+    iron_claw_shard: { id: 'iron_claw_shard', name: '鉄爪の欠片',       icon: '🦴', rarity: '★☆☆', mode: 'hard', type: 'stat', statKey: 'pow',     range: [18, 22], desc: 'ちからが上昇する鉄爪の欠片。' },
+    cracked_scale:   { id: 'cracked_scale',   name: 'ひび割れた鱗',     icon: '🐍', rarity: '★☆☆', mode: 'hard', type: 'stat', statKey: 'def',     range: [16, 20], desc: '丈夫さが上昇するひび割れた鱗。' },
+    phoenix_feather: { id: 'phoenix_feather', name: '不死鳥の羽根',     icon: '🪶', rarity: '★★★', mode: 'hard', type: 'special', effect: 'lifesaver', healPct: 0.4, desc: '残りライフが最大ライフの3割を切った時、1度だけ最大ライフの4割を回復する。' },
+
+    // ---------- ハードモード専用★★★特殊効果装備 ----------
+    guardian_ward:   { id: 'guardian_ward',   name: '護りの霊符',       icon: '🔰', rarity: '★★★', mode: 'hard', type: 'special', effect: 'gutsDownCut', cutRate: 0.3, desc: '被ガッツダウン量を3割カットする。' },
+    crit_fang_charm: { id: 'crit_fang_charm', name: '牙獣のお守り',     icon: '🦷', rarity: '★★★', mode: 'hard', type: 'special', effect: 'critUp', critBonus: 0.35, desc: 'クリティカル率が大幅にアップする。' },
+    berserker_core:  { id: 'berserker_core',  name: '闘魂の紅玉',       icon: '💢', rarity: '★★★', mode: 'hard', type: 'special', effect: 'lowLifeAtkUp', threshold: 0.5, bonusPct: 0.2, desc: '自身のライフが最大ライフの半分を切った時、攻撃ステータス（ちから・かしこさ）が20%アップする。' },
+
+    // ---------- オーラ連動装備（ノーマル・ハード共通ドロップ） ----------
+    red_aura_charm:   { id: 'red_aura_charm',   name: '紅蓮のお守り',   icon: '🔴', rarity: '★☆☆', mode: 'both', type: 'special', effect: 'auraStatUp', requiredAura: 'red',    hitBonus: 10, spdBonus: 10, desc: '自身が赤オーラの時、命中・回避がアップする。' },
+    blue_aura_charm:  { id: 'blue_aura_charm',  name: '蒼海のお守り',   icon: '🔵', rarity: '★☆☆', mode: 'both', type: 'special', effect: 'auraStatUp', requiredAura: 'blue',   hitBonus: 10, spdBonus: 10, desc: '自身が青オーラの時、命中・回避がアップする。' },
+    green_aura_ring:  { id: 'green_aura_ring',  name: '翠緑の指輪',     icon: '🟢', rarity: '★★☆', mode: 'both', type: 'special', effect: 'auraStatUp', requiredAura: 'green',  hitBonus: 16, spdBonus: 16, desc: '自身が緑オーラの時、命中・回避が大きくアップする。' },
+    yellow_aura_crest:{ id: 'yellow_aura_crest',name: '黄金の紋章',     icon: '🟡', rarity: '★★★', mode: 'both', type: 'special', effect: 'auraStatUp', requiredAura: 'yellow', hitBonus: 24, spdBonus: 24, desc: '自身が黄オーラの時、命中・回避が大幅にアップする。' }
 };
 
 // --- 装備アイテムの入手：指定モードのプールからランダムに1つ選び、ランダム個体値を持つ「所持インスタンス」を生成する ---
 // 同じ名前の装備でも取得時にランダムで数値が変動する（例：炎の爪：ちから20～25アップ）
 function rollEquipmentInstance(mode) {
-    const pool = Object.values(EQUIPMENT_DB).filter(e => e.mode === mode);
+    const pool = Object.values(EQUIPMENT_DB).filter(e => e.mode === mode || e.mode === 'both');
     if (pool.length === 0) return null;
     const base = pool[Math.floor(Math.random() * pool.length)];
 
@@ -411,6 +428,51 @@ function getEquipmentStatBonuses(instance) {
     const base = EQUIPMENT_DB[instance.equipId];
     if (!base || base.type !== 'stat') return bonuses;
     bonuses[base.statKey] = instance.rolledValue || 0;
+    return bonuses;
+}
+
+// --- 装備の「被ガッツダウンカット」効果の軽減率（0〜1）を取得 ---
+function getEquipmentGutsDownCutRate(unit) {
+    if (!unit || !unit.equippedItem) return 0;
+    const base = EQUIPMENT_DB[unit.equippedItem.equipId];
+    if (!base || base.effect !== 'gutsDownCut') return 0;
+    return base.cutRate || 0;
+}
+
+// --- 装備の「クリティカル率アップ」効果のボーナス値（0〜1）を取得 ---
+function getEquipmentCritBonus(unit) {
+    if (!unit || !unit.equippedItem) return 0;
+    const base = EQUIPMENT_DB[unit.equippedItem.equipId];
+    if (!base || base.effect !== 'critUp') return 0;
+    return base.critBonus || 0;
+}
+
+// --- 装備の「自身のライフが半分を切った時、攻撃ステータスアップ」効果の倍率を取得 ---
+// ユニットのライフ構造差（stats.life か life か）を吸収して両対応させる。
+function getEquipmentLowLifeAtkMultiplier(unit) {
+    if (!unit || !unit.equippedItem) return 1;
+    const base = EQUIPMENT_DB[unit.equippedItem.equipId];
+    if (!base || base.effect !== 'lowLifeAtkUp') return 1;
+
+    const hasNestedStats = !!unit.stats;
+    const life = hasNestedStats ? unit.stats.life : unit.life;
+    const maxLife = hasNestedStats ? unit.stats.maxLife : unit.maxLife;
+    if (!maxLife || life > maxLife * (base.threshold || 0.5)) return 1;
+
+    return 1 + (base.bonusPct || 0);
+}
+
+// --- 装備の「自身オーラ○○の時、命中・回避アップ」効果による補正値（{hit, spd}）を取得 ---
+// unitAuraKey: そのユニット自身が持つオーラ（PvPマスモンは育成中に選んだオーラを引き継ぐ）
+function getEquipmentAuraStatBonuses(equipInstance, unitAuraKey) {
+    const bonuses = { hit: 0, spd: 0 };
+    if (!equipInstance || !unitAuraKey) return bonuses;
+    const base = EQUIPMENT_DB[equipInstance.equipId];
+    if (!base || base.effect !== 'auraStatUp') return bonuses;
+    if (base.requiredAura !== unitAuraKey) return bonuses;
+
+    bonuses.hit = base.hitBonus || 0;
+    bonuses.spd = base.spdBonus || 0;
     return bonuses;
 }
 

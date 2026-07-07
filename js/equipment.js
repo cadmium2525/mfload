@@ -9,6 +9,13 @@
 // database.js の EQUIPMENT_DB / rollEquipmentInstance 等に依存する。
 // =====================================================
 
+// --- 装備の入手モード表示ラベル（'both' はノーマル・ハード両方でドロップする装備） ---
+function getEquipmentModeLabel(mode) {
+    if (mode === 'hard') return 'HARD産';
+    if (mode === 'both') return 'NORMAL/HARD産';
+    return 'NORMAL産';
+}
+
 const FAVORITE_TAG_LABELS = {
     p1: 'お気に入りA',
     p2: 'お気に入りB',
@@ -206,7 +213,7 @@ async function renderEquipmentListScreen() {
         info.innerHTML = `
             <div class="text-xs font-bold text-purple-200 truncate">${base.name}<span class="text-[9px] text-amber-400 ml-1">${base.rarity}</span>${isEquippedByTarget ? '<span class="text-[9px] text-purple-300 ml-1">✓装備中</span>' : ''}</div>
             <div class="text-[9px] text-gray-400 mt-0.5">${getEquipmentDisplayDesc(inst)}</div>
-            <div class="text-[8px] text-gray-500 mt-0.5">${base.mode === 'hard' ? 'HARD産' : 'NORMAL産'}${activeTags.length ? ' ・ ' + activeTags.map(t => FAVORITE_TAG_LABELS[t]).join('/') : ''}</div>
+            <div class="text-[8px] text-gray-500 mt-0.5">${getEquipmentModeLabel(base.mode)}${activeTags.length ? ' ・ ' + activeTags.map(t => FAVORITE_TAG_LABELS[t]).join('/') : ''}</div>
         `;
 
         card.appendChild(iconWrap);
@@ -240,7 +247,7 @@ function openEquipmentDetailModal(inst) {
     document.getElementById('equipment-detail-icon').textContent = base.icon;
     document.getElementById('equipment-detail-name').textContent = base.name;
     document.getElementById('equipment-detail-rarity').textContent = base.rarity;
-    document.getElementById('equipment-detail-mode').textContent = base.mode === 'hard' ? 'HARD産' : 'NORMAL産';
+    document.getElementById('equipment-detail-mode').textContent = getEquipmentModeLabel(base.mode);
     document.getElementById('equipment-detail-desc').textContent = getEquipmentDisplayDesc(inst);
 
     const tagContainer = document.getElementById('equipment-detail-tags');

@@ -52,10 +52,12 @@ function getEnemyActive() { return MASMON_BATTLE_STATE.enemyTeam[MASMON_BATTLE_S
 // equippedItem: PvPでこのマスモンに装備させる装備インスタンス（未装備なら null/undefined）
 function convertMasmonToBattleUnit(masmonData, equippedItem) {
     const equipBonus = getEquipmentStatBonuses(equippedItem);
+    const auraBonus = getEquipmentAuraStatBonuses(equippedItem, masmonData.aura || null);
     return {
         name: masmonData.name,
         monsterBaseName: masmonData.monsterBaseName || masmonData.name,
         emoji: masmonData.emoji,
+        aura: masmonData.aura || null,
         isAwakened: !!masmonData.isAwakened,
         guts: 50,
         critBonusTurns: 0,
@@ -78,8 +80,8 @@ function convertMasmonToBattleUnit(masmonData, equippedItem) {
             life: masmonData.stats.maxLife + equipBonus.maxLife,
             pow: masmonData.stats.pow + equipBonus.pow,
             int: masmonData.stats.int + equipBonus.int,
-            hit: masmonData.stats.hit + equipBonus.hit,
-            spd: masmonData.stats.spd + equipBonus.spd,
+            hit: masmonData.stats.hit + equipBonus.hit + auraBonus.hit,
+            spd: masmonData.stats.spd + equipBonus.spd + auraBonus.spd,
             def: masmonData.stats.def + equipBonus.def,
             gutsSpeed: masmonData.stats.gutsSpeed || 14
         },
@@ -966,7 +968,7 @@ function executeMasmonPlayerSkill(skKey) {
 
             if (isHit) {
                 const isPow = sk.type === 'pow';
-                const attackerStat = getWeakenedStat(p, isPow ? p.stats.pow : p.stats.int);
+                const attackerStat = getWeakenedStat(p, isPow ? p.stats.pow : p.stats.int) * getEquipmentLowLifeAtkMultiplier(p);
                 // 丈夫さ強化：ダメージ計算で使用する丈夫さは1.5倍して扱う
                 const defenderStat = e.stats.def * 1.5;
                 const statCap = Math.max(30, defenderStat * 2.5);
@@ -993,7 +995,7 @@ function executeMasmonPlayerSkill(skKey) {
                     extraDmgMsg += " (天河天翔×1.2)";
                 }
 
-                const critChance = 0.10 + (p.critBonusTurns > 0 ? 0.25 : 0);
+                const critChance = 0.10 + (p.critBonusTurns > 0 ? 0.25 : 0) + getEquipmentCritBonus(p);
                 let isCrit = Math.random() < critChance;
                 if (isCrit) {
                     damage = Math.floor(damage * 1.5);
@@ -1024,7 +1026,8 @@ function executeMasmonPlayerSkill(skKey) {
                 }
                 if (finalGutsDown > 0) {
                     // 丈夫さ強化：丈夫さが高いほど受けるガッツダウン量を軽減する
-                    const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(e.stats.def));
+                    // 装備の「被ガッツダウンカット」効果もあわせて軽減する
+                    const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(e.stats.def) * (1 - getEquipmentGutsDownCutRate(e)));
                     const actualGutsDown = Math.min(e.guts, mitigatedGutsDown);
                     e.guts = Math.max(0, e.guts - actualGutsDown);
                     addLog(`さらに！相手のガッツを ${actualGutsDown} 奪い取った！${p.isGyakujoActive ? " (逆上×1.2)" : ""} (現在: ${Math.floor(e.guts)})`);
@@ -1226,7 +1229,7 @@ function executeMasmonEnemyTurn() {
 
                     if (isHit) {
                         const isPow = sk.type === 'pow';
-                        const attackerStat = getWeakenedStat(e, isPow ? e.stats.pow : e.stats.int);
+                        const attackerStat = getWeakenedStat(e, isPow ? e.stats.pow : e.stats.int) * getEquipmentLowLifeAtkMultiplier(e);
                         // 丈夫さ強化：ダメージ計算で使用する丈夫さは1.5倍して扱う
                         const defenderStat = p.stats.def * 1.5;
                         const statCap = Math.max(30, defenderStat * 2.5);
@@ -1249,7 +1252,7 @@ function executeMasmonEnemyTurn() {
                             damage = Math.floor(damage * 1.2);
                         }
 
-                        const critChance = 0.10 + (e.critBonusTurns > 0 ? 0.25 : 0);
+                        const critChance = 0.10 + (e.critBonusTurns > 0 ? 0.25 : 0) + getEquipmentCritBonus(e);
                         const isCrit = Math.random() < critChance;
                         if (isCrit) damage = Math.floor(damage * 1.5);
 
@@ -1279,7 +1282,8 @@ function executeMasmonEnemyTurn() {
                         }
                         if (finalGutsDown > 0) {
                             // 丈夫さ強化：丈夫さが高いほど受けるガッツダウン量を軽減する
-                            const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(p.stats.def));
+                            // 装備の「被ガッツダウンカット」効果もあわせて軽減する
+                            const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(p.stats.def) * (1 - getEquipmentGutsDownCutRate(p)));
                             const actualGutsDown = Math.min(p.guts, mitigatedGutsDown);
                             p.guts = Math.max(0, p.guts - actualGutsDown);
                             addLog(`さらに！ ${p.name} のガッツが ${actualGutsDown} 奪われた！(現在: ${Math.floor(p.guts)})`);

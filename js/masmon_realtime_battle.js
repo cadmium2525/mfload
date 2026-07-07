@@ -118,17 +118,19 @@ async function initializeRealtimeBattleState() {
 function convertRoomMasmonToRealtimeUnit(masmon) {
     const s = masmon.stats;
     const equipBonus = getEquipmentStatBonuses(masmon.equip);
+    const auraBonus = getEquipmentAuraStatBonuses(masmon.equip, masmon.aura || null);
     return {
         name: masmon.name,
         emoji: masmon.emoji,
         monsterBaseName: masmon.monsterBaseName || masmon.name,
+        aura: masmon.aura || null,
         isAwakened: !!masmon.isAwakened,
         life: s.maxLife + equipBonus.maxLife,
         maxLife: s.maxLife + equipBonus.maxLife,
         pow: s.pow + equipBonus.pow,
         int: s.int + equipBonus.int,
-        hit: s.hit + equipBonus.hit,
-        spd: s.spd + equipBonus.spd,
+        hit: s.hit + equipBonus.hit + auraBonus.hit,
+        spd: s.spd + equipBonus.spd + auraBonus.spd,
         def: s.def + equipBonus.def,
         gutsSpeed: s.gutsSpeed || 14,
         guts: 50,
@@ -876,7 +878,7 @@ async function performRealtimeAction(action) {
 
                     if (isHit) {
                         const isPow = sk.type === 'pow';
-                        const attackerStat = getWeakenedStat(me, isPow ? me.pow : me.int);
+                        const attackerStat = getWeakenedStat(me, isPow ? me.pow : me.int) * getEquipmentLowLifeAtkMultiplier(me);
                         // 丈夫さ強化：ダメージ計算で使用する丈夫さは1.5倍して扱う
                         const defenderStat = opp.def * 1.5;
                         const statCap = Math.max(30, defenderStat * 2.5);
@@ -895,7 +897,7 @@ async function performRealtimeAction(action) {
                             damage = Math.floor(damage * 1.2);
                         }
 
-                        const critChance = 0.10 + (me.critBonusTurns > 0 ? 0.25 : 0);
+                        const critChance = 0.10 + (me.critBonusTurns > 0 ? 0.25 : 0) + getEquipmentCritBonus(me);
                         const isCrit = Math.random() < critChance;
                         if (isCrit) damage = Math.floor(damage * 1.5);
 
@@ -939,7 +941,8 @@ async function performRealtimeAction(action) {
                         }
                         if (finalGutsDown > 0) {
                             // 丈夫さ強化：丈夫さが高いほど受けるガッツダウン量を軽減する
-                            const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(opp.def));
+                            // 装備の「被ガッツダウンカット」効果もあわせて軽減する
+                            const mitigatedGutsDown = Math.floor(finalGutsDown * getGutsDownMitigation(opp.def) * (1 - getEquipmentGutsDownCutRate(opp)));
                             const actualGutsDown = Math.min(opp.guts, mitigatedGutsDown);
                             opp.guts = Math.max(0, opp.guts - actualGutsDown);
                             if (actualGutsDown > 0) {

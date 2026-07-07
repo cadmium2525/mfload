@@ -124,6 +124,7 @@ function buildRealtimeMyPayload() {
             skillEnhancements: m.skillEnhancements || {},
             statusEffect: m.statusEffect || null,
             isAwakened: !!m.isAwakened,
+            aura: m.aura || null,
             equip: m.equip || null
         })),
         items: buildItemCounts(realtimePendingItems),

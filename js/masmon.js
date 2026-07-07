@@ -42,6 +42,7 @@ function buildMasmonPayload(nickname) {
         },
         skills: [...p.skills],
         skillEnhancements: JSON.parse(JSON.stringify(GAME_STATE.skillEnhancements || {})),
+        aura: p.aura || null,
         statusEffect: GAME_STATE.playerStatusEffect || null,
         isAwakened: !!GAME_STATE.isAwakened,
         difficulty: GAME_STATE.difficulty,
