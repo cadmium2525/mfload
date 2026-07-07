@@ -66,6 +66,25 @@ async function toggleEquipmentFavoriteTag(instanceId, tagKey) {
     }
 }
 
+// --- 自分の全マスモンを見て、各装備インスタンス(instanceId)がどのマスモンに装備中かを調べる ---
+// 戻り値: { [instanceId]: マスモンのkey, name } の形式のマップ（excludeKeyを除く）
+async function buildEquippedElsewhereMap(excludeKey) {
+    const map = {};
+    if (!initFirebase()) return map;
+    try {
+        const myMasmons = await fetchMyMasmons();
+        myMasmons.forEach(mon => {
+            if (mon.key === excludeKey) return; // 対象マスモン自身は除外（付け替え・外しは許可する）
+            if (mon.equip && mon.equip.instanceId) {
+                map[mon.equip.instanceId] = { key: mon.key, name: mon.name };
+            }
+        });
+    } catch (e) {
+        console.error('[Firebase] マスモン一覧取得エラー:', e);
+    }
+    return map;
+}
+
 async function deleteEquipmentItem(instanceId) {
     if (!initFirebase()) return;
     if (!confirm('この装備アイテムを削除しますか？')) return;
@@ -183,20 +202,32 @@ async function renderEquipmentListScreen() {
         return;
     }
 
+    const isPicker = !!equipPickerTargetMasmon;
+    // 選択モードの場合、他のマスモンが装備中のアイテムを判定するためのマップを取得しておく
+    const equippedElsewhereMap = isPicker
+        ? await buildEquippedElsewhereMap(equipPickerTargetMasmon.key)
+        : {};
+
     container.innerHTML = '';
     list.forEach(inst => {
         const base = EQUIPMENT_DB[inst.equipId];
         if (!base) return;
 
-        const isPicker = !!equipPickerTargetMasmon;
         const isEquippedByTarget = isPicker && equipPickerTargetMasmon.equip && equipPickerTargetMasmon.equip.instanceId === inst.instanceId;
+        const equippedElsewhere = isPicker ? equippedElsewhereMap[inst.instanceId] : null;
 
         const card = document.createElement('div');
-        card.className = `bg-[#2a1b15] border rounded-xl p-2.5 flex items-center space-x-2 cursor-pointer active:scale-[0.98] transition-all ${
+        card.className = `bg-[#2a1b15] border rounded-xl p-2.5 flex items-center space-x-2 transition-all ${
+            equippedElsewhere ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'
+        } ${
             isEquippedByTarget ? 'border-purple-400 shadow-[0_0_6px_2px_rgba(168,85,247,0.4)]' : 'border-purple-900/50'
         }`;
         card.onclick = () => {
             if (isPicker) {
+                if (equippedElsewhere) {
+                    showToast(`このアイテムは【${equippedElsewhere.name}】が装備中のため装備できません。`);
+                    return;
+                }
                 assignEquipToMasmon(equipPickerTargetMasmon, inst);
             } else {
                 openEquipmentDetailModal(inst);
@@ -211,7 +242,7 @@ async function renderEquipmentListScreen() {
         const info = document.createElement('div');
         info.className = 'flex-1 min-w-0';
         info.innerHTML = `
-            <div class="text-xs font-bold text-purple-200 truncate">${base.name}<span class="text-[9px] text-amber-400 ml-1">${base.rarity}</span>${isEquippedByTarget ? '<span class="text-[9px] text-purple-300 ml-1">✓装備中</span>' : ''}</div>
+            <div class="text-xs font-bold text-purple-200 truncate">${base.name}<span class="text-[9px] text-amber-400 ml-1">${base.rarity}</span>${isEquippedByTarget ? '<span class="text-[9px] text-purple-300 ml-1">✓装備中</span>' : ''}${equippedElsewhere ? `<span class="text-[9px] text-red-400 ml-1">🔒${equippedElsewhere.name}が装備中</span>` : ''}</div>
             <div class="text-[9px] text-gray-400 mt-0.5">${getEquipmentDisplayDesc(inst)}</div>
             <div class="text-[8px] text-gray-500 mt-0.5">${getEquipmentModeLabel(base.mode)}${activeTags.length ? ' ・ ' + activeTags.map(t => FAVORITE_TAG_LABELS[t]).join('/') : ''}</div>
         `;
@@ -331,6 +362,17 @@ function renderEquipmentPickerBanner() {
 // 一覧からアイテムをタップして、選択中のマスモンに装備させる
 async function assignEquipToMasmon(m, inst) {
     if (!initFirebase()) return;
+
+    // 装備直前にもう一度、他のマスモンが装備していないか確認する（表示の取りこぼしや
+    // 複数端末からの同時操作による二重装備を防ぐための最終チェック）
+    const equippedElsewhereMap = await buildEquippedElsewhereMap(m.key);
+    const conflict = equippedElsewhereMap[inst.instanceId];
+    if (conflict) {
+        showToast(`このアイテムは【${conflict.name}】が装備中のため装備できません。`);
+        renderEquipmentListScreen();
+        return;
+    }
+
     try {
         await firebaseDb.ref(`masmons/${getMyPlayerId()}/${m.key}/equip`).set(inst);
         m.equip = inst;

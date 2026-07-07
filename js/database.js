@@ -382,12 +382,34 @@ const EQUIPMENT_DB = {
     yellow_aura_crest:{ id: 'yellow_aura_crest',name: '黄金の紋章',     icon: '🟡', rarity: '★★★', mode: 'both', type: 'special', effect: 'auraStatUp', requiredAura: 'yellow', hitBonus: 24, spdBonus: 24, desc: '自身が黄オーラの時、命中・回避が大幅にアップする。' }
 };
 
+// --- レア度ごとの抽選重み（★の数が少ないほど重みを大きくし、レア度間の出現率を均す） ---
+// ハードモードは★★★装備の登録数が★☆☆・★★☆に比べて多いため、単純な均等抽選だと
+// ★★★ばかりが出てすぐに★☆☆・★★☆が埋まらない状態になっていた。
+// レア度単位で重みを持たせることで、登録数に関わらずどのレア度もまんべんなくドロップする。
+const EQUIPMENT_RARITY_DROP_WEIGHT = {
+    '★☆☆': 3,
+    '★★☆': 2,
+    '★★★': 1
+};
+
 // --- 装備アイテムの入手：指定モードのプールからランダムに1つ選び、ランダム個体値を持つ「所持インスタンス」を生成する ---
 // 同じ名前の装備でも取得時にランダムで数値が変動する（例：炎の爪：ちから20～25アップ）
 function rollEquipmentInstance(mode) {
     const pool = Object.values(EQUIPMENT_DB).filter(e => e.mode === mode || e.mode === 'both');
     if (pool.length === 0) return null;
-    const base = pool[Math.floor(Math.random() * pool.length)];
+
+    // レア度ごとの重みを使った重み付き抽選（★の少ない装備ほど出やすくなる）
+    const weights = pool.map(e => EQUIPMENT_RARITY_DROP_WEIGHT[e.rarity] || 1);
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+    let roll = Math.random() * totalWeight;
+    let base = pool[pool.length - 1];
+    for (let i = 0; i < pool.length; i++) {
+        roll -= weights[i];
+        if (roll < 0) {
+            base = pool[i];
+            break;
+        }
+    }
 
     const instance = {
         instanceId: 'eq_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
