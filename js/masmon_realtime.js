@@ -174,6 +174,14 @@ async function startRealtimeMatching() {
     try {
         txResult = await ref.transaction(current => {
             const now = getFirebaseServerNow();
+            // 前回の対戦が正常終了時のルーム削除（remove()）を経ずに残ってしまった場合
+            // （通信切断・アプリ強制終了等）、battleState が「終了済み(finished)」のまま
+            // 残っていることがある。これを使い回すと ratingApplied 等の終了済みフラグまで
+            // 引き継がれ、2試合目以降のレート・対戦履歴が一切記録されなくなるため、
+            // その場合は新規ルームとして初期化し直す。
+            if (current && current.battleState && current.battleState.status === 'finished') {
+                current = null;
+            }
             if (!current) {
                 return {
                     status: 'waiting',

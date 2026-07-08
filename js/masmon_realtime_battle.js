@@ -98,7 +98,10 @@ async function initializeRealtimeBattleState() {
         ]);
 
         await stateRef.transaction(current => {
-            if (current) return current; // 既に相手が作成済み → そのまま採用
+            // 相手クライアントが今回の対戦用に既に作成済みの battleState はそのまま採用する。
+            // ただし前回対戦の「終了済み(finished)」データが片付け漏れで残っている場合は
+            // 使い回さず、今回の対戦用に新しく作り直す。
+            if (current && current.status !== 'finished') return current;
             return buildInitialRealtimeBattleState(roomData, {
                 mode: ratingMode,
                 season: ratingSeason,
