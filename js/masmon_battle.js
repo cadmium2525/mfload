@@ -307,9 +307,11 @@ function startMasmonBattleCommon(floorText) {
     document.getElementById('enemy-name').textContent = `${e.name}（${enemyOwner}）`;
     renderMonsterVisual(document.getElementById('battle-enemy-icon'), e.monsterBaseName, e.emoji, e.isAwakened);
     document.getElementById('battle-enemy-type').textContent = e.name;
+    renderAuraBadge('enemy-aura-badge', e.aura);
 
     renderMonsterVisual(document.getElementById('battle-player-icon'), p.monsterBaseName, p.emoji, p.isAwakened, true);
     document.getElementById('battle-player-name').textContent = p.name;
+    renderAuraBadge('player-aura-badge', p.aura);
 
     const log = document.getElementById('battle-log');
     log.innerHTML = `<div>${enemyOwner}の【${e.name}】が立ちはだかった！</div>`;
@@ -398,12 +400,14 @@ function checkFaintAndProceed(side) {
     if (side === 'player') {
         renderMonsterVisual(document.getElementById('battle-player-icon'), newUnit.monsterBaseName, newUnit.emoji, newUnit.isAwakened, true);
         document.getElementById('battle-player-name').textContent = newUnit.name;
+        renderAuraBadge('player-aura-badge', newUnit.aura);
         renderMasmonBattleSkills();
     } else {
         const enemyOwner = MASMON_BATTLE_STATE.enemyMeta[nextIdx].ownerName || '相手ブリーダー';
         document.getElementById('enemy-name').textContent = `${newUnit.name}（${enemyOwner}）`;
         renderMonsterVisual(document.getElementById('battle-enemy-icon'), newUnit.monsterBaseName, newUnit.emoji, newUnit.isAwakened);
         document.getElementById('battle-enemy-type').textContent = newUnit.name;
+        renderAuraBadge('enemy-aura-badge', newUnit.aura);
     }
 
     renderTeamIcons();
@@ -508,11 +512,12 @@ function checkAndActivateShuchu(unit) {
 // --- ダメージを受けた側の「根性」「底力」発動判定 ---
 function checkMasmonDefenseStatusTriggers(defender) {
     const isPlayerSide = defender === getPlayerActive();
+    const displayElId = isPlayerSide ? 'player-status-effect-display' : 'enemy-status-effect-display';
     if (defender.stats.life === 0 && defender.statusEffect === "根性") {
         if (Math.random() < 0.50) {
             defender.stats.life = 1;
             addLog(`✨ 根性が発動！ ${defender.name} は力尽きず、ライフ 1 で耐え抜いた！`);
-            if (isPlayerSide) triggerMasmonTemporaryStatusEffect("根性");
+            triggerMasmonTemporaryStatusEffect("根性", displayElId);
         }
     }
     if (defender.statusEffect === "底力" && !defender.isSokojikaraFired) {
@@ -520,7 +525,7 @@ function checkMasmonDefenseStatusTriggers(defender) {
             defender.isSokojikaraFired = true;
             defender.isSokojikaraActive = true;
             addLog(`💪 底力が発動！窮地に陥ったことで、次の技のダメージが 1.5 倍に上昇！`);
-            if (isPlayerSide) updateMasmonStatusEffectUI();
+            updateMasmonStatusEffectUI();
         }
     }
 }
@@ -531,46 +536,54 @@ function checkMasmonGyakujoTrigger(defender) {
         if (Math.random() < 0.65) {
             defender.isGyakujoActive = true;
             addLog(`💢 逆上が発動！ ${defender.name} の怒りが頂点に達し、ガッツ回復速度と与えるガッツダウン量が 1.2 倍に上昇！`);
-            if (defender === getPlayerActive()) updateMasmonStatusEffectUI();
+            updateMasmonStatusEffectUI();
         }
     }
 }
 
 // -----------------------------------------------------
 // 状態変化表示UI（育成中のバトルと同じ見た目・仕様で表示する）
+// 味方（player-status-effect-display）・相手（enemy-status-effect-display）の
+// 両方について、それぞれの状態変化を表示する。
 // -----------------------------------------------------
 function updateMasmonStatusEffectUI() {
-    const el = document.getElementById('player-status-effect-display');
-    if (!el) return;
-
     const p = getPlayerActive();
     const e = getEnemyActive();
-    if (!p) return;
+    if (!p || !e) return;
 
-    let showText = "";
-    if (p.isGyakujoActive) {
-        showText = "逆上";
-    } else if (p.isSokojikaraActive) {
-        showText = "底力";
-    } else if (p.statusEffect === "闘魂" && e && e.guts > 70) {
-        showText = "闘魂";
-    } else if (p.isShuchuActive) {
-        showText = "集中";
-    }
+    const renderSide = (elId, unit, opponent) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
 
-    if (showText) {
-        el.textContent = showText;
-        el.classList.remove('hidden');
-    } else {
-        if (!el.dataset.temporaryActive) {
-            el.classList.add('hidden');
+        let showText = "";
+        if (unit.isGyakujoActive) {
+            showText = "逆上";
+        } else if (unit.isSokojikaraActive) {
+            showText = "底力";
+        } else if (unit.statusEffect === "闘魂" && opponent && opponent.guts > 70) {
+            showText = "闘魂";
+        } else if (unit.isShuchuActive) {
+            showText = "集中";
         }
-    }
+
+        if (showText) {
+            el.textContent = showText;
+            el.classList.remove('hidden');
+        } else {
+            if (!el.dataset.temporaryActive) {
+                el.classList.add('hidden');
+            }
+        }
+    };
+
+    renderSide('player-status-effect-display', p, e);
+    renderSide('enemy-status-effect-display', e, p);
 }
 
 // 根性などの一時的な状態変化の点滅表示（育成中のバトルと同じ演出）
-function triggerMasmonTemporaryStatusEffect(effectName) {
-    const el = document.getElementById('player-status-effect-display');
+// elId: 表示先要素（味方='player-status-effect-display' / 相手='enemy-status-effect-display'）
+function triggerMasmonTemporaryStatusEffect(effectName, elId = 'player-status-effect-display') {
+    const el = document.getElementById(elId);
     if (!el) return;
     el.textContent = effectName;
     el.classList.remove('hidden');

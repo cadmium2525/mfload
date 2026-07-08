@@ -401,6 +401,8 @@
 
                     <!-- 敵モンスター -->
                     <div class="flex flex-col items-center relative transition-all duration-300" id="battle-enemy-sprite-container">
+                        <!-- 状態変化表示 (赤の太文字で点滅・相手側) -->
+                        <div id="enemy-status-effect-display" class="absolute -top-7 text-xs font-black text-red-500 animate-status-blink hidden z-10"></div>
                         <div class="relative w-16 h-16 flex items-center justify-center mb-2" id="battle-enemy-icon">
                             👁️
                         </div>
@@ -1029,7 +1031,10 @@
             <div class="flex items-center space-x-3 border-b border-purple-800 pb-2">
                 <div id="masmon-detail-icon" class="w-14 h-14 flex items-center justify-center text-3xl flex-shrink-0 bg-[#1a120b] rounded-full border border-purple-900/60"></div>
                 <div class="flex-1 min-w-0">
-                    <h4 id="masmon-detail-name" class="text-base font-black text-white pixel-font truncate">マスモン名</h4>
+                    <div class="flex items-center space-x-1.5">
+                        <h4 id="masmon-detail-name" class="text-base font-black text-white pixel-font truncate">マスモン名</h4>
+                        <span id="masmon-detail-aura-badge" class="hidden px-1 py-0.5 rounded text-[8px] font-bold text-slate-900 flex-shrink-0"></span>
+                    </div>
                     <p class="text-[10px] text-gray-400" id="masmon-detail-base">（モンスター種）</p>
                     <p class="text-[9px] text-amber-600" id="masmon-detail-owner">オーナー: -</p>
                 </div>

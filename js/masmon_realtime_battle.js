@@ -250,8 +250,11 @@ function attachRealtimeBattleListeners() {
             // 根性の発動は状態を持続保存しないため、ログのタイミングで一時演出を出す（育成中のバトルと同じ表現）
             if (entry.text.includes('根性が発動') && REALTIME_BATTLE.cachedState) {
                 const meNow = getRealtimeActiveUnit(REALTIME_BATTLE.cachedState, REALTIME_BATTLE.mySlot);
+                const oppNow = getRealtimeActiveUnit(REALTIME_BATTLE.cachedState, REALTIME_BATTLE.oppSlot);
                 if (meNow && entry.text.includes(meNow.name)) {
-                    triggerRealtimeTemporaryStatusEffect("根性");
+                    triggerRealtimeTemporaryStatusEffect("根性", 'player-status-effect-display');
+                } else if (oppNow && entry.text.includes(oppNow.name)) {
+                    triggerRealtimeTemporaryStatusEffect("根性", 'enemy-status-effect-display');
                 }
             }
         }
@@ -318,6 +321,7 @@ function renderRealtimeBattleUI(state) {
     document.getElementById('enemy-name').textContent = `${opp.name}（${oppOwnerName}）`;
     renderMonsterVisual(document.getElementById('battle-enemy-icon'), opp.monsterBaseName, opp.emoji, opp.isAwakened);
     document.getElementById('battle-enemy-type').textContent = opp.name;
+    renderAuraBadge('enemy-aura-badge', opp.aura);
     document.getElementById('enemy-hp-text').textContent = `HP: ${opp.life}/${opp.maxLife}`;
     document.getElementById('enemy-hp-bar').style.width = `${Math.max(0, (opp.life / opp.maxLife) * 100)}%`;
     document.getElementById('enemy-guts-text').textContent = Math.floor(opp.guts);
@@ -325,6 +329,7 @@ function renderRealtimeBattleUI(state) {
 
     renderMonsterVisual(document.getElementById('battle-player-icon'), me.monsterBaseName, me.emoji, me.isAwakened, true);
     document.getElementById('battle-player-name').textContent = me.name;
+    renderAuraBadge('player-aura-badge', me.aura);
     document.getElementById('player-hp-text').textContent = `${me.life}/${me.maxLife}`;
     document.getElementById('player-hp-bar').style.width = `${Math.max(0, (me.life / me.maxLife) * 100)}%`;
     document.getElementById('guts-number').textContent = Math.floor(me.guts);
@@ -361,32 +366,38 @@ function renderRealtimeBattleUI(state) {
 // 状態変化表示UI（育成中のバトルと同じ見た目・仕様で表示する）
 // -----------------------------------------------------
 function updateRealtimeStatusEffectUI(state) {
-    const el = document.getElementById('player-status-effect-display');
-    if (!el) return;
-
     const me = getRealtimeActiveUnit(state, REALTIME_BATTLE.mySlot);
     const opp = getRealtimeActiveUnit(state, REALTIME_BATTLE.oppSlot);
-    if (!me) return;
+    if (!me || !opp) return;
 
-    let showText = "";
-    if (me.isGyakujoActive) {
-        showText = "逆上";
-    } else if (me.isSokojikaraActive) {
-        showText = "底力";
-    } else if (me.statusEffect === "闘魂" && opp && opp.guts > 70) {
-        showText = "闘魂";
-    } else if (me.isShuchuActive) {
-        showText = "集中";
-    }
+    const renderSide = (elId, unit, opponent) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
 
-    if (showText) {
-        el.textContent = showText;
-        el.classList.remove('hidden');
-    } else {
-        if (!el.dataset.temporaryActive) {
-            el.classList.add('hidden');
+        let showText = "";
+        if (unit.isGyakujoActive) {
+            showText = "逆上";
+        } else if (unit.isSokojikaraActive) {
+            showText = "底力";
+        } else if (unit.statusEffect === "闘魂" && opponent && opponent.guts > 70) {
+            showText = "闘魂";
+        } else if (unit.isShuchuActive) {
+            showText = "集中";
         }
-    }
+
+        if (showText) {
+            el.textContent = showText;
+            el.classList.remove('hidden');
+        } else {
+            if (!el.dataset.temporaryActive) {
+                el.classList.add('hidden');
+            }
+        }
+    };
+
+    // 味方（player-status-effect-display）と相手（enemy-status-effect-display）の両方を表示する
+    renderSide('player-status-effect-display', me, opp);
+    renderSide('enemy-status-effect-display', opp, me);
 }
 
 // -----------------------------------------------------
@@ -480,8 +491,9 @@ function triggerRealtimeCombatEffects(entry) {
 }
 
 // 根性などの一時的な状態変化の点滅表示（育成中のバトルと同じ演出）
-function triggerRealtimeTemporaryStatusEffect(effectName) {
-    const el = document.getElementById('player-status-effect-display');
+// elId: 表示先要素（味方='player-status-effect-display' / 相手='enemy-status-effect-display'）
+function triggerRealtimeTemporaryStatusEffect(effectName, elId = 'player-status-effect-display') {
+    const el = document.getElementById(elId);
     if (!el) return;
     el.textContent = effectName;
     el.classList.remove('hidden');

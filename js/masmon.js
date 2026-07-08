@@ -295,6 +295,7 @@ function openMasmonDetailModal(m) {
     renderMonsterVisual(iconWrap, m.monsterBaseName, m.emoji, !!m.isAwakened, true);
 
     document.getElementById('masmon-detail-name').textContent = m.name;
+    renderAuraBadge('masmon-detail-aura-badge', m.aura || null);
     document.getElementById('masmon-detail-base').textContent = `（${m.monsterBaseName}）`;
     document.getElementById('masmon-detail-owner').textContent = `オーナー: ${m.ownerName || '-'}`;
 
