@@ -374,12 +374,35 @@ const EQUIPMENT_DB = {
     guardian_ward:   { id: 'guardian_ward',   name: '護りの霊符',       icon: '🔰', rarity: '★★★', mode: 'hard', type: 'special', effect: 'gutsDownCut', cutRate: 0.3, desc: '被ガッツダウン量を3割カットする。' },
     crit_fang_charm: { id: 'crit_fang_charm', name: '牙獣のお守り',     icon: '🦷', rarity: '★★★', mode: 'hard', type: 'special', effect: 'critUp', critBonus: 0.35, desc: 'クリティカル率が大幅にアップする。' },
     berserker_core:  { id: 'berserker_core',  name: '闘魂の紅玉',       icon: '💢', rarity: '★★★', mode: 'hard', type: 'special', effect: 'lowLifeAtkUp', threshold: 0.5, bonusPct: 0.2, desc: '自身のライフが最大ライフの半分を切った時、攻撃ステータス（ちから・かしこさ）が20%アップする。' },
+    fighting_spirit_core: { id: 'fighting_spirit_core', name: '闘気の勾玉', icon: '🔶', rarity: '★★★', mode: 'hard', type: 'special', effect: 'gutsRecoveryUp', gutsRecoveryBonus: 10, desc: '自ターン開始時のガッツ回復量が+10される。' },
 
-    // ---------- オーラ連動装備（ノーマル・ハード共通ドロップ） ----------
-    red_aura_charm:   { id: 'red_aura_charm',   name: '紅蓮のお守り',   icon: '🔴', rarity: '★☆☆', mode: 'both', type: 'special', effect: 'auraStatUp', requiredAura: 'red',    hitBonus: 10, spdBonus: 10, desc: '自身が赤オーラの時、命中・回避がアップする。' },
-    blue_aura_charm:  { id: 'blue_aura_charm',  name: '蒼海のお守り',   icon: '🔵', rarity: '★☆☆', mode: 'both', type: 'special', effect: 'auraStatUp', requiredAura: 'blue',   hitBonus: 10, spdBonus: 10, desc: '自身が青オーラの時、命中・回避がアップする。' },
-    green_aura_ring:  { id: 'green_aura_ring',  name: '翠緑の指輪',     icon: '🟢', rarity: '★★☆', mode: 'both', type: 'special', effect: 'auraStatUp', requiredAura: 'green',  hitBonus: 16, spdBonus: 16, desc: '自身が緑オーラの時、命中・回避が大きくアップする。' },
-    yellow_aura_crest:{ id: 'yellow_aura_crest',name: '黄金の紋章',     icon: '🟡', rarity: '★★★', mode: 'both', type: 'special', effect: 'auraStatUp', requiredAura: 'yellow', hitBonus: 24, spdBonus: 24, desc: '自身が黄オーラの時、命中・回避が大幅にアップする。' }
+    // ---------- オーラ連動装備（ノーマル・ハード共通ドロップ／各オーラ★1〜★3） ----------
+    // 自身のオーラが requiredAura と一致する時のみ、ランダムに選ばれた2種類のステータスが上昇する。
+    // 上昇幅はレア度（★の数）に応じて変化し、上昇するステータスの組み合わせは装備入手時に決定される。
+    red_aura_amulet:  { id: 'red_aura_amulet',  name: '紅蓮のお守り', icon: '🔴', rarity: '★☆☆', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'red' },
+    red_aura_ring:    { id: 'red_aura_ring',    name: '紅蓮の指輪',   icon: '🔴', rarity: '★★☆', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'red' },
+    red_aura_crest:   { id: 'red_aura_crest',   name: '紅蓮の紋章',   icon: '🔴', rarity: '★★★', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'red' },
+
+    blue_aura_amulet: { id: 'blue_aura_amulet', name: '蒼海のお守り', icon: '🔵', rarity: '★☆☆', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'blue' },
+    blue_aura_ring:   { id: 'blue_aura_ring',   name: '蒼海の指輪',   icon: '🔵', rarity: '★★☆', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'blue' },
+    blue_aura_crest:  { id: 'blue_aura_crest',  name: '蒼海の紋章',   icon: '🔵', rarity: '★★★', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'blue' },
+
+    green_aura_amulet:{ id: 'green_aura_amulet',name: '翠緑のお守り', icon: '🟢', rarity: '★☆☆', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'green' },
+    green_aura_ring:  { id: 'green_aura_ring',  name: '翠緑の指輪',   icon: '🟢', rarity: '★★☆', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'green' },
+    green_aura_crest: { id: 'green_aura_crest', name: '翠緑の紋章',   icon: '🟢', rarity: '★★★', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'green' },
+
+    yellow_aura_amulet:{ id: 'yellow_aura_amulet', name: '黄金のお守り', icon: '🟡', rarity: '★☆☆', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'yellow' },
+    yellow_aura_ring:  { id: 'yellow_aura_ring',   name: '黄金の指輪',   icon: '🟡', rarity: '★★☆', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'yellow' },
+    yellow_aura_crest: { id: 'yellow_aura_crest',  name: '黄金の紋章',   icon: '🟡', rarity: '★★★', mode: 'both', type: 'auraStat2', effect: 'auraStatUp', requiredAura: 'yellow' }
+};
+
+// --- オーラ連動装備（type: 'auraStat2'）の上昇候補ステータスと、レア度ごとの上昇幅 ---
+// ライフ・命中や命中・回避、ちから・丈夫さ　等、2種類の組み合わせを装備入手時にランダム抽選する。
+const AURA_STAT2_KEYS = ['maxLife', 'pow', 'int', 'hit', 'spd', 'def'];
+const AURA_STAT2_RANGE_BY_RARITY = {
+    '★☆☆': { maxLife: [15, 20], pow: [8, 11],  int: [8, 11],  hit: [8, 11],  spd: [8, 11],  def: [8, 11]  },
+    '★★☆': { maxLife: [26, 32], pow: [13, 17], int: [13, 17], hit: [13, 17], spd: [13, 17], def: [13, 17] },
+    '★★★': { maxLife: [40, 50], pow: [20, 26], int: [20, 26], hit: [20, 26], spd: [20, 26], def: [20, 26] }
 };
 
 // --- レア度ごとの抽選重み（★の数が少ないほど重みを大きくし、レア度間の出現率を均す） ---
@@ -423,6 +446,17 @@ function rollEquipmentInstance(mode) {
         instance.rolledValue = Math.floor(Math.random() * (max - min + 1)) + min;
     }
 
+    if (base.type === 'auraStat2') {
+        // 上昇ステータスをランダムに重複無く2種類選び、レア度に応じた範囲で数値を決定する
+        const shuffled = [...AURA_STAT2_KEYS].sort(() => Math.random() - 0.5);
+        const pickedKeys = shuffled.slice(0, 2);
+        const rangeTable = AURA_STAT2_RANGE_BY_RARITY[base.rarity] || {};
+        instance.rolledStats = pickedKeys.map(key => {
+            const [min, max] = rangeTable[key] || [10, 15];
+            return { key, value: Math.floor(Math.random() * (max - min + 1)) + min };
+        });
+    }
+
     return instance;
 }
 
@@ -439,6 +473,13 @@ function getEquipmentDisplayDesc(instance) {
     if (!base) return '';
     if (base.type === 'stat') {
         return `${getStatLabel(base.statKey)} +${instance.rolledValue} アップ`;
+    }
+    if (base.type === 'auraStat2') {
+        const auraName = (AURA_TYPES[base.requiredAura] || {}).name || base.requiredAura;
+        const statsText = (instance.rolledStats || [])
+            .map(s => `${getStatLabel(s.key)}+${s.value}`)
+            .join('・');
+        return `自身が${auraName}オーラの時、${statsText} アップ`;
     }
     return base.desc;
 }
@@ -484,18 +525,30 @@ function getEquipmentLowLifeAtkMultiplier(unit) {
     return 1 + (base.bonusPct || 0);
 }
 
-// --- 装備の「自身オーラ○○の時、命中・回避アップ」効果による補正値（{hit, spd}）を取得 ---
+// --- 装備の「自身オーラ○○の時、ランダム2種のステータスアップ」効果による補正値を取得 ---
 // unitAuraKey: そのユニット自身が持つオーラ（PvPマスモンは育成中に選んだオーラを引き継ぐ）
+// 戻り値: {pow, int, hit, spd, def, maxLife} （装備入手時にランダムで決まった2種類のみ値が入る）
 function getEquipmentAuraStatBonuses(equipInstance, unitAuraKey) {
-    const bonuses = { hit: 0, spd: 0 };
+    const bonuses = { pow: 0, int: 0, hit: 0, spd: 0, def: 0, maxLife: 0 };
     if (!equipInstance || !unitAuraKey) return bonuses;
     const base = EQUIPMENT_DB[equipInstance.equipId];
     if (!base || base.effect !== 'auraStatUp') return bonuses;
     if (base.requiredAura !== unitAuraKey) return bonuses;
 
-    bonuses.hit = base.hitBonus || 0;
-    bonuses.spd = base.spdBonus || 0;
+    (equipInstance.rolledStats || []).forEach(s => {
+        if (bonuses.hasOwnProperty(s.key)) {
+            bonuses[s.key] += s.value || 0;
+        }
+    });
     return bonuses;
+}
+
+// --- 装備の「自ターン開始時のガッツ回復量アップ」効果のボーナス値を取得 ---
+function getEquipmentGutsRecoveryBonus(unit) {
+    if (!unit || !unit.equippedItem) return 0;
+    const base = EQUIPMENT_DB[unit.equippedItem.equipId];
+    if (!base || base.effect !== 'gutsRecoveryUp') return 0;
+    return base.gutsRecoveryBonus || 0;
 }
 
 // --- 装備の特殊効果（残りライフ3割切りで1度だけ回復、等）判定・適用ヘルパー ---

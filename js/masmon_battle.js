@@ -76,13 +76,13 @@ function convertMasmonToBattleUnit(masmonData, equippedItem) {
         equippedItem: equippedItem || null,      // 装備している装備アイテムインスタンス（PvP専用）
         equipLifesaverUsed: false,               // 装備の特殊効果（残りライフ3割で1度だけ回復等）を使用済みか
         stats: {
-            maxLife: masmonData.stats.maxLife + equipBonus.maxLife,
-            life: masmonData.stats.maxLife + equipBonus.maxLife,
-            pow: masmonData.stats.pow + equipBonus.pow,
-            int: masmonData.stats.int + equipBonus.int,
+            maxLife: masmonData.stats.maxLife + equipBonus.maxLife + auraBonus.maxLife,
+            life: masmonData.stats.maxLife + equipBonus.maxLife + auraBonus.maxLife,
+            pow: masmonData.stats.pow + equipBonus.pow + auraBonus.pow,
+            int: masmonData.stats.int + equipBonus.int + auraBonus.int,
             hit: masmonData.stats.hit + equipBonus.hit + auraBonus.hit,
             spd: masmonData.stats.spd + equipBonus.spd + auraBonus.spd,
-            def: masmonData.stats.def + equipBonus.def,
+            def: masmonData.stats.def + equipBonus.def + auraBonus.def,
             gutsSpeed: masmonData.stats.gutsSpeed || 14
         },
         skills: [...(masmonData.skills || [])],
@@ -436,6 +436,7 @@ function startMasmonPlayerTurn(isFirstTurn = false) {
         if (p.statusEffect === "闘魂" && e && e.guts > 70) {
             recovery = Math.floor(recovery * 1.5);
         }
+        recovery += getEquipmentGutsRecoveryBonus(p);
         addLog(`--- あなたのターン ---`);
         p.guts = Math.min(100, p.guts + recovery);
         addLog(`ガッツが ${recovery} 回復した！(現在: ${Math.floor(p.guts)})`);
@@ -624,7 +625,8 @@ function updateMasmonBattleStatsUI() {
         }
     });
 
-    document.getElementById('turn-guts-notice').textContent = `💡 あなたのガッツ回復力: +30 / ターン`;
+    const baseGutsRecovery = 30 + getEquipmentGutsRecoveryBonus(p);
+    document.getElementById('turn-guts-notice').textContent = `💡 あなたのガッツ回復力: +${baseGutsRecovery} / ターン`;
 
     updateMasmonStatusEffectUI();
 
@@ -1162,6 +1164,7 @@ function executeMasmonEnemyTurn() {
     if (e.statusEffect === "闘魂" && p && p.guts > 70) {
         enemyRecovery = Math.floor(enemyRecovery * 1.5);
     }
+    enemyRecovery += getEquipmentGutsRecoveryBonus(e);
     e.guts = Math.min(100, e.guts + enemyRecovery);
     addLog(`${e.name} のガッツが ${enemyRecovery} 回復した！(現在: ${Math.floor(e.guts)})`);
 

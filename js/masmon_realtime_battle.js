@@ -125,13 +125,13 @@ function convertRoomMasmonToRealtimeUnit(masmon) {
         monsterBaseName: masmon.monsterBaseName || masmon.name,
         aura: masmon.aura || null,
         isAwakened: !!masmon.isAwakened,
-        life: s.maxLife + equipBonus.maxLife,
-        maxLife: s.maxLife + equipBonus.maxLife,
-        pow: s.pow + equipBonus.pow,
-        int: s.int + equipBonus.int,
+        life: s.maxLife + equipBonus.maxLife + auraBonus.maxLife,
+        maxLife: s.maxLife + equipBonus.maxLife + auraBonus.maxLife,
+        pow: s.pow + equipBonus.pow + auraBonus.pow,
+        int: s.int + equipBonus.int + auraBonus.int,
         hit: s.hit + equipBonus.hit + auraBonus.hit,
         spd: s.spd + equipBonus.spd + auraBonus.spd,
-        def: s.def + equipBonus.def,
+        def: s.def + equipBonus.def + auraBonus.def,
         gutsSpeed: s.gutsSpeed || 14,
         guts: 50,
         critBonusTurns: 0,
@@ -339,8 +339,9 @@ function renderRealtimeBattleUI(state) {
         turnIndicator.classList.add('hidden');
     }
 
+    const myGutsRecovery = 30 + getEquipmentGutsRecoveryBonus(me);
     document.getElementById('turn-guts-notice').textContent = isMyTurn
-        ? `💡 あなたのターンです！行動を選んでください（GUTS回復:+30）`
+        ? `💡 あなたのターンです！行動を選んでください（GUTS回復:+${myGutsRecovery}）`
         : `⏳ 対戦相手の行動を待っています…`;
 
     renderRealtimeBattleSkills(state);
@@ -1072,6 +1073,7 @@ async function performRealtimeAction(action) {
                 if (oppNowActive.statusEffect === "闘魂" && myTeam.units[myTeam.activeIdx].guts > 70) {
                     recovery = Math.floor(recovery * 1.5);
                 }
+                recovery += getEquipmentGutsRecoveryBonus(oppNowActive);
                 oppNowActive.guts = Math.min(100, oppNowActive.guts + recovery);
                 if (oppNowActive.statusEffect === "集中" && oppNowActive.guts > 90 && !oppNowActive.isShuchuActive) {
                     oppNowActive.isShuchuActive = true;
