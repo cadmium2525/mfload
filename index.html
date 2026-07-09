@@ -38,6 +38,12 @@
 
     <!-- 全体コンテナ (モバイルに最適なアスペクト比、かつ画面最下部に空白の余裕を持たせる) -->
     <div id="game-container" class="w-full max-w-md mx-auto flex flex-col bg-[#3c2a21] shadow-2xl relative overflow-hidden border-x border-[#1a120b]" style="height: 100%;">
+
+        <!-- サウンド設定ボタン（全画面共通・常時表示） -->
+        <button onclick="openAudioSettingsModal()" aria-label="サウンド設定"
+            class="absolute top-2 right-2 z-40 w-8 h-8 flex items-center justify-center bg-[#1a120b]/80 hover:bg-[#2a1b15] border border-amber-800 rounded-full shadow-lg text-amber-300 text-sm transition-all active:scale-90">
+            <i id="audio-settings-icon" class="fa-solid fa-volume-xmark"></i>
+        </button>
         
         <!-- ゲームプレイコンテンツエリア (各screenが個別にスクロール制御するため、ここはflexで高さを子に委譲) -->
         <div class="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -963,6 +969,42 @@
         </div>
     </div>
 
+    <!-- サウンド設定モーダル（BGM/SEの音量：OFF・小・中・大） -->
+    <div id="audio-settings-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 hidden" onclick="closeAudioSettingsModal()">
+        <div class="bg-[#2a1b15] w-full max-w-xs p-4 rounded-2xl border-2 border-amber-600 space-y-4 shadow-2xl" onclick="event.stopPropagation()">
+            <h4 class="text-base font-black text-white pixel-font flex items-center space-x-2 border-b border-amber-800 pb-2">
+                <i class="fa-solid fa-volume-high text-amber-400"></i>
+                <span>サウンド設定</span>
+            </h4>
+
+            <!-- BGM 音量 -->
+            <div>
+                <p class="text-xs text-amber-300 font-bold mb-1.5">🎵 BGM 音量</p>
+                <div class="grid grid-cols-4 gap-1.5" id="audio-bgm-row">
+                    <button id="audio-btn-bgm-off" onclick="setAudioLevel('bgm','off')" class="py-2 rounded-lg border text-[11px] font-bold transition-all bg-[#1a120b] text-gray-400 border-amber-900">OFF</button>
+                    <button id="audio-btn-bgm-small" onclick="setAudioLevel('bgm','small')" class="py-2 rounded-lg border text-[11px] font-bold transition-all bg-[#1a120b] text-gray-400 border-amber-900">小</button>
+                    <button id="audio-btn-bgm-mid" onclick="setAudioLevel('bgm','mid')" class="py-2 rounded-lg border text-[11px] font-bold transition-all bg-[#1a120b] text-gray-400 border-amber-900">中</button>
+                    <button id="audio-btn-bgm-large" onclick="setAudioLevel('bgm','large')" class="py-2 rounded-lg border text-[11px] font-bold transition-all bg-[#1a120b] text-gray-400 border-amber-900">大</button>
+                </div>
+            </div>
+
+            <!-- SE 音量 -->
+            <div>
+                <p class="text-xs text-amber-300 font-bold mb-1.5">🔔 効果音（SE）音量</p>
+                <div class="grid grid-cols-4 gap-1.5" id="audio-se-row">
+                    <button id="audio-btn-se-off" onclick="setAudioLevel('se','off')" class="py-2 rounded-lg border text-[11px] font-bold transition-all bg-[#1a120b] text-gray-400 border-amber-900">OFF</button>
+                    <button id="audio-btn-se-small" onclick="setAudioLevel('se','small')" class="py-2 rounded-lg border text-[11px] font-bold transition-all bg-[#1a120b] text-gray-400 border-amber-900">小</button>
+                    <button id="audio-btn-se-mid" onclick="setAudioLevel('se','mid')" class="py-2 rounded-lg border text-[11px] font-bold transition-all bg-[#1a120b] text-gray-400 border-amber-900">中</button>
+                    <button id="audio-btn-se-large" onclick="setAudioLevel('se','large')" class="py-2 rounded-lg border text-[11px] font-bold transition-all bg-[#1a120b] text-gray-400 border-amber-900">大</button>
+                </div>
+            </div>
+
+            <button onclick="closeAudioSettingsModal()" class="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs transition-all">
+                閉じる
+            </button>
+        </div>
+    </div>
+
     <!-- 簡易的なお知らせトーストシステム (alertを使わないカスタムUI) -->
     <div id="custom-toast" class="fixed top-4 left-1/2 transform -translate-x-1/2 bg-amber-950/95 border-2 border-amber-500 px-4 py-2.5 rounded-xl text-xs font-bold shadow-2xl z-50 transition-opacity duration-300 opacity-0 pointer-events-none text-center max-w-xs text-amber-100">
         トースト通知
@@ -1145,6 +1187,8 @@
     <script src="js/masmon_rating.js"></script>
     <script src="js/masmon_realtime.js"></script>
     <script src="js/masmon_realtime_battle.js"></script>
+    <!-- BGM/SE 管理（他スクリプトの関数をラップするため必ず最後に読み込む） -->
+    <script src="js/audio.js"></script>
 
     <!-- ==================== PWA: Service Worker 登録 ==================== -->
     <script>

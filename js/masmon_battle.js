@@ -1430,6 +1430,7 @@ function showMasmonBattleResult(isWin) {
         <div class="flex justify-between text-xs"><span class="text-gray-400">経過ターン数:</span><span class="text-white font-bold">${MASMON_BATTLE_STATE.turn}</span></div>
     `;
 
+    if (typeof AudioManager !== 'undefined') AudioManager.playBGM(isWin ? 'victory' : 'defeat');
     changeScreen('screen-masmon-battle-result');
 }
 

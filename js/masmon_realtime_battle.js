@@ -1294,6 +1294,7 @@ function showRealtimeBattleResult(state, isWin, reasonText) {
     resetRealtimeBattleClientState();
     resetRealtimeRoomState();
 
+    if (typeof AudioManager !== 'undefined') AudioManager.playBGM(isWin ? 'victory' : 'defeat');
     changeScreen('screen-masmon-battle-result');
 }
 

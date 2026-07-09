@@ -1193,6 +1193,7 @@ function endGame(isClear) {
 
     submitScore(GAME_STATE.playerName, p.name, finalScore, GAME_STATE.difficulty, GAME_STATE.floor - (isClear ? 1 : 0), isClear);
 
+    if (typeof AudioManager !== 'undefined') AudioManager.playBGM(isClear ? 'victory' : 'defeat');
     changeScreen('screen-result');
 }
 
